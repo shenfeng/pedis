@@ -1,14 +1,54 @@
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/merge_operator.h"
 #include "util/coding.h"
+#include "util/random.h"
 #include <iostream>
+#include <thread>
+#include <ratio>
+#include <chrono>
+#include <stdio.h>
 
 using namespace std;
 using namespace rocksdb;
 
+// Helper for quickly generating random data.
+class RandomGenerator {
+private:
+    std::string data_;
+    unsigned int pos_;
+
+public:
+    RandomGenerator() {
+        // We use a limited amount of data over and over again and ensure
+        // that it is larger than the compression window (32KB), and also
+        // large enough to serve all typical value sizes we want to write.
+        Random rnd(301);
+
+        const unsigned int size = 1024 * 1024 * 4;
+
+        data_.resize(size);
+        for (int i = 0; i < 1024 * 1024 * 4; i++) {
+            data_[i] = static_cast<char>(' ' + rnd.Uniform(95));   // ' ' .. '~'
+        }
+        pos_ = 0;
+
+    }
+
+    Slice Generate(unsigned int len) {
+        if (pos_ + len > data_.size()) {
+            pos_ = 0;
+            assert(len < data_.size());
+        }
+        pos_ += len;
+        return Slice(data_.data() + pos_ - len, len);
+    }
+};
+
+
 Status to_list(const string& value,
-               std::vector<Slice> *elements,
+                   std::vector<Slice> *elements,
                uint32_t start, int stop) { // [start, stop]
     auto p = value.data(), end = value.data() + value.size();
     uint32_t n = 0;
@@ -25,6 +65,7 @@ Status to_list(const string& value,
 
     if (start > ustop) return Status::OK(); // empty
 
+    elements->clear();
     elements->reserve(ustop - start + 1);
     p = value.data();
     end = value.data() + value.size();
@@ -107,13 +148,15 @@ public:
 };
 
 class RedisList {
- private:
+private:
     rocksdb::DB* db;
     const WriteOptions woption;
     const ReadOptions roption;
 
- public:
-    RedisList(rocksdb::DB* db): db(db) { }
+public:
+    RedisList(rocksdb::DB* db): db(db) {
+        // woption.disableWAL = true;
+    }
 
     Status Rpush(const Slice& key, const Slice& value) {
         return db->Merge(woption, key, value);
@@ -130,17 +173,63 @@ class RedisList {
     }
 };
 
+void bench_read_and_write(RedisList *list) {
+    using namespace std::chrono;
+
+    RandomGenerator gen;
+    Random rnd(1301);
+    const int N = 1024 * 1024 * 500; // 0.5 billion items
+    std::vector<Slice> elements;
+
+    auto start = high_resolution_clock::now(),
+        last = high_resolution_clock::now();
+
+
+    for(int i = 0; i < N; i++) {
+        int userid = rnd.Uniform(1024 * 1024 * 100); // 0.1 billion
+        string key = std::to_string(userid);
+        if (userid % 5) { // 20% write
+            list->Rpush(key, gen.Generate(rnd.Uniform(7) + 13));
+        } else { // 80% read
+            list->Lrange(key, &elements, 0, 200);
+        }
+
+        if (i && i % 200000 == 0) {
+            auto now = high_resolution_clock::now();
+            auto time_span = duration_cast<duration<double>>(now - start).count() * 1000; // mill seconds
+            auto last_span = duration_cast<duration<double>>(now - last).count() * 1000; // mill seconds
+
+            last = now;
+
+            printf("i = %d, time: %.4fms, ops/ms: %.4f, last 100k: %.4f \n", i, time_span, i / time_span,
+                   200000 / last_span);
+        }
+    }
+}
+
+void start_read_write_thread() {
+    thread t([](){
+
+
+        });
+    t.detach();
+}
+
 int main() {
     rocksdb::DB* db;
     rocksdb::Options options;
     options.create_if_missing = true;
+    options.write_buffer_size = 1024 * 1024 * 64; // 64M buffer
+    options.target_file_size_base = 1024 * 1024 * 16; // 32M file size
     options.filter_policy = NewBloomFilterPolicy(10);
+    options.block_cache = NewLRUCache(1024 << 20);
     options.merge_operator.reset(new ListMergeOperator);
 
-    rocksdb::Status status = rocksdb::DB::Open(options, "/tmp/rockdb_test", &db);
+    rocksdb::Status status = rocksdb::DB::Open(options, "./tmp_data", &db);
     assert(status.ok());
 
     RedisList list(db);
+
     Slice key = "1212121"; // userid
     list.Rpush(key, "x:1212121:123123");
     list.Rpush(key, "x:1212121:123124");
@@ -151,6 +240,7 @@ int main() {
         cout<<s.ToString()<<endl;
     }
 
+    bench_read_and_write(&list);
     delete db;
     // db->Put(WriteOptions(), "user1212");
 }
