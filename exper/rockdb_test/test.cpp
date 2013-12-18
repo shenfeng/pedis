@@ -9,9 +9,27 @@
 #include <ratio>
 #include <chrono>
 #include <stdio.h>
+#include <algorithm>
 
 using namespace std;
 using namespace rocksdb;
+using namespace std::chrono;
+
+
+class Watch {
+private:
+    system_clock::time_point last;
+
+public:
+    Watch(): last(system_clock::now()) {}
+    void tap() { last = system_clock::now(); }
+    double tic() {
+        auto now = system_clock::now();
+        auto t = duration_cast<duration<double>>(now - last).count();
+        last = now;
+        return t * 1000; // in ms
+    }
+};
 
 // Helper for quickly generating random data.
 class RandomGenerator {
@@ -24,7 +42,9 @@ public:
         // We use a limited amount of data over and over again and ensure
         // that it is larger than the compression window (32KB), and also
         // large enough to serve all typical value sizes we want to write.
-        Random rnd(301);
+        //Random rnd(system_clock::to_time_t(system_clock::now()));
+        auto seed = system_clock::to_time_t(system_clock::now());
+        Random rnd(seed);
 
         const unsigned int size = 1024 * 1024 * 4;
 
@@ -48,8 +68,9 @@ public:
 
 
 Status to_list(const string& value,
-                   std::vector<Slice> *elements,
-               uint32_t start, int stop) { // [start, stop]
+               std::vector<Slice> *elements,
+               int start,
+               int stop) { // [start, stop]
     auto p = value.data(), end = value.data() + value.size();
     uint32_t n = 0;
     while( p != end) {
@@ -59,20 +80,22 @@ Status to_list(const string& value,
         p += size;
     }
 
-    while(stop < 0) stop += (int)n;
-    uint32_t ustop = uint32_t(stop); // get rid of warning by converting to unsigned
-    while(ustop >= n) ustop -= n;
+    while(stop < 0)  stop += (int)n;
+    while(start < 0) start += (int)n;
 
-    if (start > ustop) return Status::OK(); // empty
+    // uint32_t ustop = uint32_t(stop); // get rid of warning by converting to unsigned
+    // while(ustop >= n) ustop -= n;
 
-    elements->clear();
-    elements->reserve(ustop - start + 1);
+    //     cout << start << "\t" << ustop << "\t" << n << "\t" << stop << endl;
+    if (start > stop) return Status::OK(); // empty
+
+    elements->reserve(stop - start + 1);
     p = value.data();
     end = value.data() + value.size();
 
-    for(uint32_t i = 0; p != end; i++) {
+    for(int i = 0; p != end; i++) {
         if (i < start) continue;
-        if (i > ustop) break;
+        if (i > stop) break;
 
         uint32_t size = 0;
         p = GetVarint32Ptr(p, p + 5, &size);
@@ -162,36 +185,64 @@ public:
         return db->Merge(woption, key, value);
     }
 
-    Status Lrange(const Slice& key, std::vector<Slice> *elements,
-                  uint32_t start, int stop ) {
-        std::string value;
-        Status s = db->Get(roption, key, &value);
+    Status Lrange(const Slice& key,
+                  std::string *scratch,  // value
+                  std::vector<Slice> *elements,
+                  int start,
+                  int stop) {
+        elements->clear();
+        Status s = db->Get(roption, key, scratch);
         if (s.ok()) {
-            to_list(value, elements, start, stop);
+            to_list(*scratch, elements, start, stop);
         }
         return s;
     }
 };
 
+
+std::string get_stats(std::vector<double> &times) {
+    std::sort(times.begin(), times.end());
+    auto n = times.size();
+    char buf[1024];
+
+    if (times.empty()) return "";
+
+    snprintf(buf,
+             sizeof(buf),
+             "n=%lu, 50%%: %.4fms, 90%%: %.4fms, 95%%: %.4fms, 99%%: %.4fms",
+             n,
+             times[int(n * 0.5)],
+             times[int(n * 0.9)],
+             times[int(n * 0.95)],
+             times[int(0.99 * n)]);
+    return std::string(buf);
+}
+
 void bench_read_and_write(RedisList *list) {
-    using namespace std::chrono;
 
     RandomGenerator gen;
-    Random rnd(1301);
-    const int N = 1024 * 1024 * 500; // 0.5 billion items
+
+    const unsigned int N = 1 << 31; // 2 billion items
     std::vector<Slice> elements;
 
     auto start = high_resolution_clock::now(),
         last = high_resolution_clock::now();
 
+    Random rnd(31);
+    std::vector<double> times;
 
-    for(int i = 0; i < N; i++) {
+    for(unsigned int i = 0; i < N; i++) {
         int userid = rnd.Uniform(1024 * 1024 * 100); // 0.1 billion
         string key = std::to_string(userid);
-        if (userid % 5) { // 20% write
+        if (rnd.Next() % 2) { // 50% write
             list->Rpush(key, gen.Generate(rnd.Uniform(7) + 13));
-        } else { // 80% read
-            list->Lrange(key, &elements, 0, 200);
+        } else { // 50% read
+            Watch w;
+            std::string scratch;
+            auto s = list->Lrange(key, &scratch, &elements, 0, 200);
+            //    cout << key << "\t" << s.ToString() << endl;
+            if (s.ok())
+                times.push_back(w.tic());
         }
 
         if (i && i % 200000 == 0) {
@@ -201,8 +252,10 @@ void bench_read_and_write(RedisList *list) {
 
             last = now;
 
-            printf("i = %d, time: %.4fms, ops/ms: %.4f, last 100k: %.4f \n", i, time_span, i / time_span,
-                   200000 / last_span);
+            printf("i = %d, time: %.4fms, ops/ms: %.4f, last 100k: %.4f, read stats: %s\n", i, time_span, i / time_span,
+                   200000 / last_span, get_stats(times).data());
+            fflush(stdout);
+            times.clear();
         }
     }
 }
@@ -216,17 +269,20 @@ void start_read_write_thread() {
 }
 
 int main() {
+    srand(time(NULL));
     rocksdb::DB* db;
     rocksdb::Options options;
     options.create_if_missing = true;
-    options.write_buffer_size = 1024 * 1024 * 64; // 64M buffer
-    options.target_file_size_base = 1024 * 1024 * 16; // 32M file size
+    options.write_buffer_size = 1024 * 1024 * 256; // 64M buffer
+    options.target_file_size_base = 1024 * 1024 * 64; // 32M file size
     options.filter_policy = NewBloomFilterPolicy(10);
     options.block_cache = NewLRUCache(1024 << 20);
     options.merge_operator.reset(new ListMergeOperator);
 
+    Watch w;
     rocksdb::Status status = rocksdb::DB::Open(options, "./tmp_data", &db);
     assert(status.ok());
+    cout << "db opened in: " << w.tic() << " ms" << endl;
 
     RedisList list(db);
 
@@ -235,7 +291,8 @@ int main() {
     list.Rpush(key, "x:1212121:123124");
 
     std::vector<Slice> elements;
-    list.Lrange(key, &elements, 0, -1);
+    string scratch;
+    list.Lrange(key, &scratch, &elements, 0, -1);
     for(auto s: elements) {
         cout<<s.ToString()<<endl;
     }

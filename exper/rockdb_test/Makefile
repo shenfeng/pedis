@@ -1,6 +1,6 @@
 CPP        = g++
 # CPPFLAGS   = -Wall -pedantic -O2 -g -c -std=c++0x
-CPPFLAGS   = -Wall -pedantic -O3 -std=c++0x -I ../../deps/rocksdb/include -I ../../deps/rocksdb/ -DROCKSDB_PLATFORM_POSIX  -DOS_LINUX
+CPPFLAGS   = -Wall -pedantic -O3 -std=c++0x -I ../../deps/rocksdb/include -I ../../deps/rocksdb/ -DROCKSDB_PLATFORM_POSIX  -DOS_LINUX -DNDEBUG
 # LIB=-lboost_program_options -lthrift -lthriftnb -levent
 LIB=-lpthread -ltcmalloc
 
