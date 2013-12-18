@@ -41,7 +41,6 @@
 #include <errno.h>
 
 #include "ae.h"
-#include "malloc.h"
 #include "config.h"
 
 /* Include the best multiplexing layer supported by this system.
