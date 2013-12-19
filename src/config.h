@@ -11,6 +11,12 @@ struct ServerConf {
     int dbsize;
 
     std::shared_ptr<rocksdb::Logger> logger;
+
+    ServerConf() {
+        this->port = 7389;
+        this->dbsize = 4;
+        // logger = new
+    }
 };
 
 

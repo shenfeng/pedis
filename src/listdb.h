@@ -5,7 +5,7 @@
 #include <sys/stat.h>
 extern "C" {
 #include "ae/anet.h"
-#include "ae/anet.h"
+#include "ae/ae.h"
 }
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -16,21 +16,11 @@ extern "C" {
 
 class Server {
     private:
-        int port;
         int listen_fd;
+        aeEventLoop *el;
     public:
-        Server(int port): port(port) {
-
-
-        }
-
-        int Start() {
-            char err[ANET_ERR_LEN];
-            this->listen_fd = anetTcpServer(err, this->port, "0.0.0.0");
-            if (this->listen_fd < 0) {
-
-            }
-        }
+        Server(int port): el(aeCreateEventLoop(1024)) { }
+        int Start();
 };
 
 class Client {
