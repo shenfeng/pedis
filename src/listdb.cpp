@@ -14,7 +14,8 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (nread == 0) {
                 Log(G_server.logger, "Client closed connection");
             } else {
-                Log(G_server.logger, "Read %d bytes from client: %s", nread, strerror(errno));
+                Log(G_server.logger, "Read %d bytes from client: %s",
+                    nread, strerror(errno));
             }
             close(fd);
             delete c;
@@ -35,7 +36,8 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     Client *c = new Client(cfd);
     anetEnableTcpNoDelay(NULL, cfd);
-    if (aeCreateFileEvent(G_server.el, cfd, AE_READABLE, readQueryFromClient, c) == AE_ERR) {
+    if (aeCreateFileEvent(G_server.el, cfd, AE_READABLE,
+                          readQueryFromClient, c) == AE_ERR) {
         close(fd);
         delete c;
     }
@@ -50,7 +52,9 @@ int main() {
     int listen_fd = anetTcpServer(G_server.neterr, G_server.port, addr);
     if (listen_fd < 0) {
         Log(G_server.logger,
-            "Creating Server TCP listening socket on port %d: %s", G_server.port, G_server.neterr);
+            "Creating Server TCP listening socket on port %d: %s",
+            G_server.port,
+            G_server.neterr);
     } else {
         aeCreateFileEvent(G_server.el, listen_fd, AE_READABLE, acceptTcpHandler , NULL);
     }
