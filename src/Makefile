@@ -1,4 +1,6 @@
-default: listdb_server
+BIN=listdb-server
+
+default: $(BIN)
 
 SOURCES    := ${wildcard *.cpp}
 HEADERS    := ${wildcard *.hpp}
@@ -10,6 +12,7 @@ CPPFLAGS   = -Wall -pedantic -O3 -c -std=c++11
 INCLUDE =-I ../deps/rocksdb/include -I ../deps/rocksdb  -I ../deps/redis/src
 LIB=-lpthread
 DEPS=../deps/rocksdb/librocksdb.a ae.o anet.o zmalloc.o
+DEPS=ae.o anet.o zmalloc.o
 
 
 %.o: %.cpp $(HEADERS) $(SOURCES)
@@ -18,9 +21,9 @@ DEPS=../deps/rocksdb/librocksdb.a ae.o anet.o zmalloc.o
 ae.o: ae.c anet.c zmalloc.c
 	gcc ae.c anet.c zmalloc.c -c -O3
 
-listdb_server: $(OBJECTS) ae.o
+$(BIN): $(OBJECTS) ae.o
 #	 (cd ../deps/rocksdb && make librocksdb.a)
-	$(CPP) -O3 $(OBJECTS) -o listdb_server $(LIB) $(INCLUDE) $(LIB) $(DEPS)
+	$(CPP) -g $(OBJECTS) -o $(BIN) $(LIB) $(INCLUDE) $(LIB) $(DEPS)
 
 clean:
-	rm -rf *.o ae/*.o listdb_server
+	rm -rf *.o ae/*.o $(BIN)

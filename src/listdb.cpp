@@ -3,26 +3,14 @@
 struct ServerConf G_server; // /* server global state */
 
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
-    Client *c = (Client*)privdata;
-
-    int buflen = sizeof(c->rbuf - c->rbufpos);
-    int nread = read(fd, c->rbuf + c->rbufpos, buflen);
-    if (nread <= 0) { // < 0 error, = 0 client by client
-        if (errno == EAGAIN) {
-            nread = 0;
-        } else {
-            if (nread == 0) {
-                Log(G_server.logger, "Client closed connection");
-            } else {
-                Log(G_server.logger, "Read %d bytes from client: %s",
-                    nread, strerror(errno));
-            }
-            close(fd);
+    RedisClient *c = (RedisClient*)privdata;
+    try {
+        if (c->ReadQuery() <= 0) { // TODO handle errror
             delete c;
-            return;
         }
-    } else {
-        c->rbufpos += nread;
+    } catch (ProtocolException &e) {
+        printf("error: %s\n", e.what());
+        delete c;
     }
 }
 
@@ -34,29 +22,43 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 
-    Client *c = new Client(cfd);
+    RedisClient *c = new RedisClient(cfd, (ListDbServer*)privdata);
     anetEnableTcpNoDelay(NULL, cfd);
-    if (aeCreateFileEvent(G_server.el, cfd, AE_READABLE,
-                          readQueryFromClient, c) == AE_ERR) {
-        close(fd);
+    if (aeCreateFileEvent(G_server.el, cfd, AE_READABLE, readQueryFromClient, c) == AE_ERR) {
         delete c;
     }
 }
 
-int Server::Start() {
-    return 1;
+void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+    RedisClient *c = (RedisClient*) privdata;
+    if (c->Write() < 0) {
+        delete c;
+    }
+}
+
+ByteBuffer RedisClient::readBuffer(1024 * 64);
+
+void ListDbServer::HandleRequest(RedisClient *c,  std::unique_ptr<RedisRequest> &&req) {
+    if (req->args[0].Value == "GET") {
+        c->TryWrite("$6\r\nfoobar\r\n");
+    } else if (req->args[0].Value == "SET") {
+        c->TryWrite("+OK\r\n");
+    } else {
+        c->TryWrite("-ERR unknown command: \r\n");
+    }
 }
 
 int main() {
     char addr[] = "0.0.0.0";
+    G_server.el = aeCreateEventLoop(1024);
+    ListDbServer server;
+
     int listen_fd = anetTcpServer(G_server.neterr, G_server.port, addr);
     if (listen_fd < 0) {
-        Log(G_server.logger,
-            "Creating Server TCP listening socket on port %d: %s",
-            G_server.port,
-            G_server.neterr);
+        perror("open listening socket");
     } else {
-        aeCreateFileEvent(G_server.el, listen_fd, AE_READABLE, acceptTcpHandler , NULL);
+        aeCreateFileEvent(G_server.el, listen_fd, AE_READABLE, acceptTcpHandler , &server);
+        aeMain(G_server.el);
     }
     return listen_fd;
 }

@@ -3,7 +3,10 @@
 
 #include <stddef.h>
 #include <unistd.h>
+#include <stdio.h>
 #include <sys/stat.h>
+#include <errno.h>
+#include <cstdlib>
 extern "C" {
 #include "anet.h"
 #include "ae.h"
@@ -14,166 +17,109 @@ extern "C" {
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "config.hpp"
+#include "redis_proto.hpp"
+#include <exception>
+#include <mutex>
+#include <deque>
 
-class Server {
-private:
-    int listen_fd;
-    aeEventLoop *el;
+void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
+void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
+
+class RedisClient;
+class ListDbServer {
 public:
-    Server(int port): el(aeCreateEventLoop(1024)) { }
-    int Start();
+    ListDbServer() {}
+    void HandleRequest(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
 };
 
-// Like java's ByteBuffer
-class ByteBuffer {
-    unsigned int position;
-    unsigned int limit;
-    unsigned int capacity;
-    char *buf;
-public:
-    ByteBuffer(unsigned int capacity):
-        position(0), limit(0), capacity(capacity), buf(new char[capacity]) {}
-    ~ByteBuffer() { delete []buf; }
-
-    unsigned int Capacity() const { return capacity; }
-    bool HasRemaining() const { return position < limit; }
-    unsigned int Remaining() const { return limit - position; }
-    char Get() { return buf[++position]; }
-    ByteBuffer &Get(char *dest,  int size) {
-        memcpy(dest, buf + position, size);
-        position += size;
-        return *this;
-    }
-
-    int Read(int fd) {
-
-    }
-};
-
-class RedisArg {
-    unsigned int size;
-    unsigned int position;
-    char *buf_;
-    char buffer[16]; // avoid allocate on the stack
-
-public:
-    explicit RedisArg(unsigned int size): size(size), position(0), buf_(nullptr) {
-        if (size > sizeof(buffer)) {
-            buf_ = (char *)malloc(size);
-        } else {
-            buf_ = buffer;
-        }
-    }
-
-    bool Read(ByteBuffer &buffer) { // return true iff this arg get all read
-        int toRead = std::min(size - position, buffer.Remaining());
-        buffer.Get(buf_ + position, toRead);
-        position += toRead;
-        return position == size;
-    }
-
-    RedisArg& operator=(RedisArg&& other) noexcept {
-        if(this != &other) {
-            if (other.size > sizeof(buffer)) {
-                delete buf_;
-                buf_ = other.buf_;
-                other.buf_ = nullptr;
-            } else {
-                memcpy(buffer, other.buffer, other.size);
-            }
-            size = other.size;
-        }
-        return *this;
-    }
-
-    ~RedisArg() {
-        if (buf_ && buf_ != buffer) { delete buf_; }
-    }
-};
-
-class LineReader {
-    char buf[16]; // 16 is enough, for reading argument size, byte count
-    int lineBufferIdx;
-public:
-    LineReader(): lineBufferIdx(0) {}
-
-    const char *readLine(ByteBuffer &buffer) {
-        while (buffer.HasRemaining()) {
-            char c = buffer.Get();
-            buf[lineBufferIdx++] = c;
-            if (c == '\n')
-                return buf;
-        }
-        return nullptr;
-    }
-
-    int LineSize() const { return lineBufferIdx; }
-
-    void reset() { this->lineBufferIdx = 0; }
-};
-
-class RedisRequest {
-    int argc;
-    int argRead;
-    std::vector<RedisArg> args;
-
-public:
-    RedisRequest(int argc): argc(argc). argRead(0) {}
-    bool decode(ByteBuffer &buffer, LineReader *lineReader) {
-        while (buffer.HasRemaining()) {
-
-        }
-    }
-};
-
-class RedisDecoder {
-    enum {
-        sReadArgCount, sReadArgLen, sReadArg, sAllRead
-    };
-
-    int state;
-    LineReader linereader;
-    std::shared_ptr<RedisRequest> request;
-
-public:
-    RedisDecoder(): state(sReadArgCount) { }
-
-    std::shared_ptr<RedisRequest> decode(ByteBuffer &buffer) {
-        switch (state) {
-        case sReadArgCount:
-
-
-        }
-    }
-};
-
-
-struct Client {
+class RedisClient {
     int fd;
-    int reqtype;
+    RedisDecoder decoder;
+    ListDbServer *server;
 
-    /* */
-    int rbufbegin;
-    int rbufpos;
-    int rbufsize;
-    char *rbuf;
+    // response
+    size_t bufpos;
+    size_t sentlen;
+    size_t capacity;
+    char *wbuf;
+    std::mutex writeLock;
 
+    static ByteBuffer readBuffer; // request. shared, access by IO thread
 
-    /* Response buffer */
-    int wbufpos;
-    int wbuflimit;
-    char wbuf[OUTPUT_BUFFER_SIZE];
+    int _write() { // with writeLock held required
+        extern struct ServerConf G_server;
+
+        int nwritten = write(fd, wbuf + sentlen, bufpos - sentlen);
+        if (nwritten <= 0) return nwritten;
+        sentlen += nwritten;
+
+        if (sentlen == bufpos) bufpos = sentlen = 0;
+        return nwritten;
+   }
+
 public:
-    Client(int fd): fd(fd) {
-        reqtype = -1;
-        rbufsize = OUTPUT_BUFFER_SIZE;
-        rbuf = new char[rbufsize];
-
-        rbufbegin = rbufpos = wbufpos = wbuflimit = 0;
+    RedisClient(int fd, ListDbServer *server): fd(fd), server(server) {
+        bufpos = sentlen = 0;
+        capacity = 64 * 1024;
+        wbuf = (char*)malloc(capacity);
     }
 
-    ~Client() {
-        delete []rbuf;
+    ~RedisClient() {
+        close(fd);
+        free(wbuf);
+    }
+
+    int ReadQuery() {
+        readBuffer.Clear(); // clear for reading
+        int nread = readBuffer.Read(this->fd);
+        readBuffer.Flip();
+        if (nread < 0) return nread;
+        else if(nread > 0) {
+            while(readBuffer.HasRemaining()) {
+                auto request = decoder.Decode(readBuffer);
+                if (request) {
+                    server->HandleRequest(this, std::unique_ptr<RedisRequest>(request));
+                    decoder.Reset();
+                }
+            }
+        }
+        return nread;
+    }
+
+    int TryWrite(const std::string &out) { // execute in worker thread
+        extern struct ServerConf G_server;
+
+        std::lock_guard<std::mutex> _(writeLock);
+        if (capacity - bufpos < out.size()) { //  enlarge output buffer
+            capacity = std::max(capacity * 2, bufpos + out.size());
+            char *tmp = (char* )malloc(capacity);
+            memcpy(tmp, wbuf, bufpos - sentlen); // copy unsended data
+            bufpos = bufpos - sentlen;
+            sentlen = 0;
+            free(wbuf);
+            wbuf = tmp;
+        }
+
+        memcpy(wbuf + bufpos, out.data(), out.size());
+        bufpos += out.size();
+
+        int nwritten = _write();
+        if (bufpos > 0) { // not all bytes written to the TCP buffer, wait for notify
+            aeCreateFileEvent(G_server.el, this->fd, AE_WRITABLE, sendReplyToClient, this);
+        }
+        return nwritten;
+    }
+
+    int Write() { // execute in IO thread
+        extern struct ServerConf G_server;
+
+        std::lock_guard<std::mutex> _(writeLock);
+        int nwritten = _write();
+        if (bufpos == 0) {
+             aeDeleteFileEvent(G_server.el, this->fd, AE_WRITABLE);
+        }
+        return nwritten;
     }
 };
 
