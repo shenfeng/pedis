@@ -25,5 +25,8 @@ $(BIN): $(OBJECTS) ae.o
 #	 (cd ../deps/rocksdb && make librocksdb.a)
 	$(CPP) -g $(OBJECTS) -o $(BIN) $(LIB) $(INCLUDE) $(LIB) $(DEPS)
 
+run: $(BIN)
+	LD_PRELOAD=/home/feng/workspace/gperftools-httpd-read-only/libghttpd-preload.so ./$(BIN)
+
 clean:
 	rm -rf *.o ae/*.o $(BIN)

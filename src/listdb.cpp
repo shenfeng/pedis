@@ -38,13 +38,22 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 ByteBuffer RedisClient::readBuffer(1024 * 64);
 
+RedisClient::~RedisClient() {
+    aeDeleteFileEvent(G_server.el, fd, AE_READABLE | AE_WRITABLE);
+    close(fd);
+    free(wbuf); 
+}
+
 void ListDbServer::HandleRequest(RedisClient *c,  std::unique_ptr<RedisRequest> &&req) {
-    if (req->args[0].Value == "GET") {
-        c->TryWrite("$6\r\nfoobar\r\n");
-    } else if (req->args[0].Value == "SET") {
-        c->TryWrite("+OK\r\n");
+    const auto &cmd = req->args[0].Value;
+    if (cmd == "GET") {
+        c->Bulk("footbar");
+    } else if (cmd == "SET") {
+        c->Raw("+OK\r\n", 5);
     } else {
-        c->TryWrite("-ERR unknown command: \r\n");
+        char buf[100];
+        int n = snprintf(buf, sizeof(buf), "-ERR unknow command: %s\r\n", cmd.data());
+        c->Raw(buf, n);
     }
 }
 

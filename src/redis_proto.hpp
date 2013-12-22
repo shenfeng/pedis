@@ -1,8 +1,6 @@
 #ifndef _REDIS_PROTO_H_
 #define _REDIS_PROTO_H_
 
-#include <mutex>
-
 class ProtocolException :public std::exception {
 private:
     const std::string msg;
@@ -107,18 +105,17 @@ public:
     }
 };
 
-class RedisDecoder;
 struct RedisRequest {
     public:
-        const int argc;
         std::vector<RedisArg> args;
         RedisRequest(int argc): argc(argc), argReading(0) {}
 
         void Add(int size) { args.emplace_back(size); ++argReading; }
+        // return true iff the whole requet decoded
         bool Done() { return argReading == argc; }
         bool ReadArg(ByteBuffer &buffer) { return args[argReading - 1].Read(buffer); }
-    friend class RedisDecoder;
     private:
+        const int argc;
         int argReading;
 };
 
@@ -176,17 +173,7 @@ public:
         return state == sAllRead ? request : nullptr;
     }
 
-    void Reset() {
-        state = sReadArgCount;
-    }
+    void Reset() { state = sReadArgCount; }
 };
-
-class RedisEncoder {
-    public:
-//        static void List(const ByteBuffer &buffer, const std::vector<Slice> &elements) {
-
-//        }
-};
-
 
 #endif /* _REDIS_PROTO_H_ */

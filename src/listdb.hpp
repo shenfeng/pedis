@@ -47,7 +47,7 @@ class RedisClient {
 
     static ByteBuffer readBuffer; // request. shared, access by IO thread
 
-    int _write() { // with writeLock held required
+    inline int _write() { // with writeLock held required
         extern struct ServerConf G_server;
 
         int nwritten = write(fd, wbuf + sentlen, bufpos - sentlen);
@@ -56,7 +56,28 @@ class RedisClient {
 
         if (sentlen == bufpos) bufpos = sentlen = 0;
         return nwritten;
-   }
+    }
+
+    inline int _tryWrite() { // from worker thread
+        extern struct ServerConf G_server;
+        int nwritten = _write();
+        if (bufpos > 0) { // not all bytes written to the TCP buffer, wait for notify
+            aeCreateFileEvent(G_server.el, this->fd, AE_WRITABLE, sendReplyToClient, this);
+        }
+        return nwritten;
+    }
+
+    inline void _reserveSpace(size_t want) { // wirte writeLock help required
+        if (capacity - bufpos < want) { //  enlarge output buffer
+            capacity = std::max(capacity * 2, bufpos + want);
+            char *tmp = (char* )malloc(capacity);
+            memcpy(tmp, wbuf, bufpos - sentlen); // copy unsended data
+            bufpos = bufpos - sentlen;
+            sentlen = 0;
+            free(wbuf);
+            wbuf = tmp;
+        }
+    }
 
 public:
     RedisClient(int fd, ListDbServer *server): fd(fd), server(server) {
@@ -65,10 +86,7 @@ public:
         wbuf = (char*)malloc(capacity);
     }
 
-    ~RedisClient() {
-        close(fd);
-        free(wbuf);
-    }
+    ~RedisClient();
 
     int ReadQuery() {
         readBuffer.Clear(); // clear for reading
@@ -87,28 +105,23 @@ public:
         return nread;
     }
 
-    int TryWrite(const std::string &out) { // execute in worker thread
-        extern struct ServerConf G_server;
-
+    int Raw(const char* res, size_t size) {
         std::lock_guard<std::mutex> _(writeLock);
-        if (capacity - bufpos < out.size()) { //  enlarge output buffer
-            capacity = std::max(capacity * 2, bufpos + out.size());
-            char *tmp = (char* )malloc(capacity);
-            memcpy(tmp, wbuf, bufpos - sentlen); // copy unsended data
-            bufpos = bufpos - sentlen;
-            sentlen = 0;
-            free(wbuf);
-            wbuf = tmp;
-        }
+        _reserveSpace(size);
+        memcpy(wbuf + bufpos, res, size);
+        bufpos += size;
+        return _tryWrite();
+    }
 
-        memcpy(wbuf + bufpos, out.data(), out.size());
-        bufpos += out.size();
-
-        int nwritten = _write();
-        if (bufpos > 0) { // not all bytes written to the TCP buffer, wait for notify
-            aeCreateFileEvent(G_server.el, this->fd, AE_WRITABLE, sendReplyToClient, this);
-        }
-        return nwritten;
+    int Bulk(const std::string &value) {
+        std::lock_guard<std::mutex> _(writeLock);
+        _reserveSpace(value.size() + 16);
+        bufpos += snprintf(wbuf + bufpos, 16, "$%lu\r\n", value.size());
+        memcpy(wbuf + bufpos, value.data(), value.size());
+        bufpos += value.size();
+        wbuf[bufpos++] = '\r';
+        wbuf[bufpos++] = '\n';
+        return _tryWrite();
     }
 
     int Write() { // execute in IO thread
