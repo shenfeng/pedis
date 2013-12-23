@@ -12,6 +12,17 @@ public:
     }
 };
 
+class IOException :public std::exception {
+private:
+    const std::string msg;
+public:
+    IOException(const std::string &msg): msg(msg) {
+    }
+    virtual const char* what() const throw() {
+        return msg.data();
+    }
+};
+
 // Like java's ByteBuffer
 class ByteBuffer {
     size_t position;
@@ -36,9 +47,17 @@ public:
     void Clear() { position = 0; limit = capacity; }
     void Flip() { limit = position; position = 0; }
 
-    int Read(int fd) { // TODO more robust
+    int Read(int fd) { // like java's SocketChannel.read()
         int nread = read(fd, buf + position, Remaining());
-//        printf("read %d, %s\n", nread, buf);
+        if (nread < 0) {
+            if (errno == EAGAIN) {
+                nread = 0;
+            } else {
+                throw IOException("read error");
+            }
+        } else if (nread == 0) {
+            nread = -1; // normal close
+        }
         if (nread > 0) {
             position += nread;
         }
@@ -54,7 +73,7 @@ struct RedisArg {
 
 public:
     explicit RedisArg(unsigned int size): Size(size), state(sReadData) {
-        Value.reserve(size); 
+        Value.reserve(size);
     }
 
     bool Read(ByteBuffer &buffer) { // return true iff this arg get all read
@@ -68,11 +87,11 @@ public:
                         state = sReadCR;
                     break;
                 case sReadCR: // read \r
-                    buffer.Get(); 
-                    state = sReadLF; 
+                    buffer.Get();
+                    state = sReadLF;
                     break;
                 case sReadLF: // read \n
-                    buffer.Get(); 
+                    buffer.Get();
                     state = sArgDone;
                     break;
             }

@@ -5,10 +5,13 @@ struct ServerConf G_server; // /* server global state */
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     RedisClient *c = (RedisClient*)privdata;
     try {
-        if (c->ReadQuery() <= 0) { // TODO handle errror
-            delete c;
+        if(c->ReadQuery() < 0) {
+            delete c; // normal clode
         }
     } catch (ProtocolException &e) {
+        printf("error: %s\n", e.what());
+        delete c;
+    } catch (IOException &e) {
         printf("error: %s\n", e.what());
         delete c;
     }
@@ -24,14 +27,18 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     RedisClient *c = new RedisClient(cfd, (ListDbServer*)privdata);
     anetEnableTcpNoDelay(NULL, cfd);
-    if (aeCreateFileEvent(G_server.el, cfd, AE_READABLE, readQueryFromClient, c) == AE_ERR) {
+    if (aeCreateFileEvent(G_server.el, cfd, AE_READABLE,
+                          readQueryFromClient, c) == AE_ERR) {
         delete c;
     }
 }
 
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     RedisClient *c = (RedisClient*) privdata;
-    if (c->Write() < 0) {
+    try {
+        c->Write();
+    } catch (IOException &e) {
+        printf("error: %s\n", e.what());
         delete c;
     }
 }
@@ -41,7 +48,7 @@ ByteBuffer RedisClient::readBuffer(1024 * 64);
 RedisClient::~RedisClient() {
     aeDeleteFileEvent(G_server.el, fd, AE_READABLE | AE_WRITABLE);
     close(fd);
-    free(wbuf); 
+    free(wbuf);
 }
 
 void ListDbServer::HandleRequest(RedisClient *c,  std::unique_ptr<RedisRequest> &&req) {

@@ -18,6 +18,7 @@ extern "C" {
 #include "rocksdb/merge_operator.h"
 #include "config.hpp"
 #include "redis_proto.hpp"
+#include "threadpool.hpp"
 #include <exception>
 #include <mutex>
 #include <deque>
@@ -51,7 +52,7 @@ class RedisClient {
         extern struct ServerConf G_server;
 
         int nwritten = write(fd, wbuf + sentlen, bufpos - sentlen);
-        if (nwritten <= 0) return nwritten;
+        if (nwritten <= 0) throw IOException("written size < 0");
         sentlen += nwritten;
 
         if (sentlen == bufpos) bufpos = sentlen = 0;
@@ -92,7 +93,7 @@ public:
         readBuffer.Clear(); // clear for reading
         int nread = readBuffer.Read(this->fd);
         readBuffer.Flip();
-        if (nread < 0) return nread;
+        if (nread <= 0) return nread;
         else if(nread > 0) {
             while(readBuffer.HasRemaining()) {
                 auto request = decoder.Decode(readBuffer);
