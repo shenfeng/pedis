@@ -5,7 +5,7 @@ struct ServerConf G_server; // /* server global state */
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     RedisClient *c = (RedisClient*)privdata;
     try {
-        if(c->ReadQuery() < 0) {
+        if(c->ReadAndHandle() < 0) {
             delete c; // normal clode
         }
     } catch (ProtocolException &e) {

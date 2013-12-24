@@ -12,8 +12,16 @@ CPPFLAGS   = -Wall -pedantic -O3 -c -std=c++11
 INCLUDE =-I ../deps/rocksdb/include -I ../deps/rocksdb  -I ../deps/redis/src
 LIB=-lpthread
 DEPS=../deps/rocksdb/librocksdb.a ae.o anet.o zmalloc.o
-DEPS=ae.o anet.o zmalloc.o
+# DEPS=ae.o anet.o zmalloc.o
 
+
+
+TARGET  := $(shell uname -s | tr [A-Z] [a-z] 2>/dev/null || echo unknown)
+ifeq ($(TARGET), linux)
+	CPPFLAGS += -DROCKSDB_PLATFORM_POSIX  -DOS_LINUX
+else ifeq ($(TARGET), darwin)
+	CPPFLAGS += -DROCKSDB_PLATFORM_POSIX  -DOS_MACOSX
+endif
 
 %.o: %.cpp $(HEADERS) $(SOURCES)
 	$(CPP) $(CPPFLAGS) $< -o $@ $(INCLUDE)
