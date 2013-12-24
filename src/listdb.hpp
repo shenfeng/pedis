@@ -28,34 +28,72 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
 
+static rocksdb::Status to_list(const std::string& value,
+                               std::vector<rocksdb::Slice> *elements,
+                               int start, int stop) {
+    auto p = value.data(), end = value.data() + value.size();
+    uint32_t n = 0;
+    while( p != end) {
+        uint32_t size = 0;
+        p = rocksdb::GetVarint32Ptr(p, p + 5, &size); // TODO corruption?
+        n += 1;
+        p += size;
+    }
+
+    while(stop < 0)  stop += (int)n;
+    while(start < 0) start += (int)n;
+
+    // uint32_t ustop = uint32_t(stop); // get rid of warning by converting to unsigned
+    // while(ustop >= n) ustop -= n;
+
+    //     cout << start << "\t" << ustop << "\t" << n << "\t" << stop << endl;
+    if (start > stop) return rocksdb::Status::OK(); // empty
+
+    elements->reserve(stop - start + 1);
+    p = value.data();
+    end = value.data() + value.size();
+
+    for(int i = 0; p != end; i++) {
+        if (i < start) continue;
+        if (i > stop) break;
+
+        uint32_t size = 0;
+        p = rocksdb::GetVarint32Ptr(p, p + 5, &size);
+        elements->emplace_back(p, size); // reuse value's memory
+        p += size;
+    }
+
+    return rocksdb::Status::OK();
+}
+
 class RedisList {
-    private:
-        rocksdb::DB* db;
-        const rocksdb::WriteOptions woption;
-        const rocksdb::ReadOptions roption;
+private:
+    rocksdb::DB* db;
+    const rocksdb::WriteOptions woption;
+    const rocksdb::ReadOptions roption;
 
-    public:
-        RedisList(rocksdb::DB* db): db(db) {
-            // woption.disableWAL = true;
+public:
+    RedisList(rocksdb::DB* db): db(db) {
+        // woption.disableWAL = true;
+    }
+
+    rocksdb::Status Rpush(const rocksdb::Slice& key, const rocksdb::Slice& value) {
+
+        return db->Merge(woption, key, value);
+    }
+
+    rocksdb::Status Lrange(const rocksdb::Slice& key,
+                           std::string *scratch,  // value
+                           std::vector<rocksdb::Slice> *elements,
+                           int start,
+                           int stop) {
+        elements->clear();
+        rocksdb::Status s = db->Get(roption, key, scratch);
+        if (s.ok()) {
+            to_list(*scratch, elements, start, stop);
         }
-
-        rocksdb::Status Rpush(const rocksdb::Slice& key, const rocksdb::Slice& value) {
-
-            return db->Merge(woption, key, value);
-        }
-
-        rocksdb::Status Lrange(const rocksdb::Slice& key,
-                std::string *scratch,  // value
-                std::vector<rocksdb::Slice> *elements,
-                int start,
-                int stop) {
-            elements->clear();
-            rocksdb::Status s = db->Get(roption, key, scratch);
-            if (s.ok()) {
-                to_list(*scratch, elements, start, stop);
-            }
-            return s;
-        }
+        return s;
+    }
 };
 
 class RedisClient;
@@ -64,6 +102,13 @@ public:
     ListDbServer() {}
     void HandleRequest(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
 };
+
+class AsyncCmdHandler() {
+
+ public:
+    void operator()() {
+    }
+}
 
 class RedisClient {
     int fd;
@@ -76,6 +121,8 @@ class RedisClient {
     size_t capacity;
     char *wbuf;
     std::mutex writeLock;
+
+    std::shared_ptr<AsyncCmdHandler> last_cmd;
 
     static ByteBuffer readBuffer; // request. shared, access by IO thread
 
@@ -161,7 +208,7 @@ public:
         std::lock_guard<std::mutex> _(writeLock);
         int nwritten = _write();
         if (bufpos == 0) {
-             aeDeleteFileEvent(G_server.el, this->fd, AE_WRITABLE);
+            aeDeleteFileEvent(G_server.el, this->fd, AE_WRITABLE);
         }
         return nwritten;
     }
@@ -230,45 +277,6 @@ public:
         return "ListMergeOperator";
     }
 };
-
-static rocksdb::Status to_list(const std::string& value,
-        std::vector<rocksdb::Slice> *elements,
-               int start,
-               int stop) { // [start, stop]
-    auto p = value.data(), end = value.data() + value.size();
-    uint32_t n = 0;
-    while( p != end) {
-        uint32_t size = 0;
-        p = rocksdb::GetVarint32Ptr(p, p + 5, &size); // TODO corruption?
-        n += 1;
-        p += size;
-    }
-
-    while(stop < 0)  stop += (int)n;
-    while(start < 0) start += (int)n;
-
-    // uint32_t ustop = uint32_t(stop); // get rid of warning by converting to unsigned
-    // while(ustop >= n) ustop -= n;
-
-    //     cout << start << "\t" << ustop << "\t" << n << "\t" << stop << endl;
-    if (start > stop) return rocksdb::Status::OK(); // empty
-
-    elements->reserve(stop - start + 1);
-    p = value.data();
-    end = value.data() + value.size();
-
-    for(int i = 0; p != end; i++) {
-        if (i < start) continue;
-        if (i > stop) break;
-
-        uint32_t size = 0;
-        p = rocksdb::GetVarint32Ptr(p, p + 5, &size);
-        elements->emplace_back(p, size); // reuse value's memory
-        p += size;
-    }
-
-    return rocksdb::Status::OK();
-}
 
 
 #endif /* _LISTDB_H_ */
