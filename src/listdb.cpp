@@ -51,12 +51,48 @@ RedisClient::~RedisClient() {
     free(wbuf);
 }
 
-void ListDbServer::HandleRequest(RedisClient *c,  std::unique_ptr<RedisRequest> &&req) {
-    const auto &cmd = req->args[0].Value;
-    if (cmd == "GET") {
-        c->Bulk("footbar");
-    } else if (cmd == "SET") {
-        c->Raw("+OK\r\n", 5);
+void getCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
+void setCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
+void rpushCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
+void lrangeCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
+
+
+// void ListDbServer::HandleRequest(RedisClient *c,  std::unique_ptr<RedisRequest> &&req) {
+//     const auto &cmd = req->args[0].Value;
+//     if (cmd == "GET") {
+//         c->Bulk("footbar");
+//     } else if (cmd == "SET") {
+//         c->Raw("+OK\r\n", 5);
+//     } else {
+//         char buf[100];
+//         int n = snprintf(buf, sizeof(buf), "-ERR unknow command: %s\r\n", cmd.data());
+//         c->Raw(buf, n);
+//     }
+// }
+
+struct redisCommand redisCommandTable[] = {
+    {"GET",getCommand,2,"r",0,1,1,1,0,0},
+    {"SET",setCommand,-3,"wm",0,1,1,1,0,0},
+    {"RPUSH",rpushCommand,-3,"wm",0,1,1,1,0,0},
+    {"LRANGE",lrangeCommand,4,"r",0,1,1,1,0,0}
+};
+
+ListDbServer::ListDbServer() {
+    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+    for (int i = 0; i < numcommands; i++) {
+        redisCommand *c = redisCommandTable + i;
+        this->table_[c->name] = c;
+    }
+}
+
+void ListDbServer::Handle(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {
+    auto &cmd = req->args[0].Value;
+    // convert to upper case
+    std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+
+    auto it = table_.find(cmd);
+    if (it != table_.end()) {
+        it->second->proc(c, std::move(req));
     } else {
         char buf[100];
         int n = snprintf(buf, sizeof(buf), "-ERR unknow command: %s\r\n", cmd.data());

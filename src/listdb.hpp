@@ -19,10 +19,10 @@ extern "C" {
 #include "rocksdb/merge_operator.h"
 #include "config.hpp"
 #include "redis_proto.hpp"
-#include "threadpool.hpp"
 #include <exception>
 #include <mutex>
 #include <deque>
+#include <algorithm>
 
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -78,7 +78,6 @@ public:
     }
 
     rocksdb::Status Rpush(const rocksdb::Slice& key, const rocksdb::Slice& value) {
-
         return db->Merge(woption, key, value);
     }
 
@@ -95,20 +94,37 @@ public:
         return s;
     }
 };
-
 class RedisClient;
-class ListDbServer {
-public:
-    ListDbServer() {}
-    void HandleRequest(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+
+typedef void redisCommandProc(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+void getCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+void setCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+void rpushCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+void lrangeCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+
+struct redisCommand {
+    std::string name;
+    redisCommandProc *proc;
+    int arity;
+    std::string sflags; /* Flags as string representation, one char per flag. */
+    int flags;    /* The actual flags, obtained from the 'sflags' field. */
+    /* Use a function to determine keys arguments in a command line.
+     * Used for Redis Cluster redirect. */
+    /* What keys should be loaded in background when calling this command? */
+    int firstkey; /* The first argument that's a key (0 = no keys) */
+    int lastkey;  /* The last argument that's a key */
+    int keystep;  /* The step between first and last key */
+    long long microseconds, calls;
 };
 
-class AsyncCmdHandler() {
 
- public:
-    void operator()() {
-    }
-}
+class ListDbServer {
+private:
+    std::unordered_map<std::string, redisCommand*> table_;
+public:
+    ListDbServer();
+    void Handle(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+};
 
 class RedisClient {
     int fd;
@@ -121,8 +137,6 @@ class RedisClient {
     size_t capacity;
     char *wbuf;
     std::mutex writeLock;
-
-    std::shared_ptr<AsyncCmdHandler> last_cmd;
 
     static ByteBuffer readBuffer; // request. shared, access by IO thread
 
@@ -175,7 +189,7 @@ public:
             while(readBuffer.HasRemaining()) {
                 auto request = decoder.Decode(readBuffer);
                 if (request) {
-                    server->HandleRequest(this, std::unique_ptr<RedisRequest>(request));
+                    server->Handle(this, std::unique_ptr<RedisRequest>(request));
                     decoder.Reset();
                 }
             }

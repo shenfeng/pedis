@@ -38,3 +38,6 @@ run: $(BIN)
 
 clean:
 	rm -rf *.o ae/*.o $(BIN)
+
+tp: threadpool.cpp
+	g++ -std=c++11 -c threadpool.cpp -DDEBUG_TP
