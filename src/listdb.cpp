@@ -43,59 +43,99 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+// read buffer, shared across all socket
 ByteBuffer RedisClient::readBuffer(1024 * 64);
 
-RedisClient::~RedisClient() {
-    aeDeleteFileEvent(G_server.el, fd, AE_READABLE | AE_WRITABLE);
-    close(fd);
-    free(wbuf);
+void RedisClient::Get(std::unique_ptr<RedisRequest> &&req) {
+
 }
 
-void getCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
-void setCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
-void rpushCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
-void lrangeCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {}
+void RedisClient::Set(std::unique_ptr<RedisRequest> &&req) {
 
+}
 
-// void ListDbServer::HandleRequest(RedisClient *c,  std::unique_ptr<RedisRequest> &&req) {
-//     const auto &cmd = req->args[0].Value;
-//     if (cmd == "GET") {
-//         c->Bulk("footbar");
-//     } else if (cmd == "SET") {
-//         c->Raw("+OK\r\n", 5);
-//     } else {
-//         char buf[100];
-//         int n = snprintf(buf, sizeof(buf), "-ERR unknow command: %s\r\n", cmd.data());
-//         c->Raw(buf, n);
-//     }
-// }
+void RedisClient::Rpush(std::unique_ptr<RedisRequest> &&req) {
 
-struct redisCommand redisCommandTable[] = {
-    {"GET",getCommand,2,"r",0,1,1,1,0,0},
-    {"SET",setCommand,-3,"wm",0,1,1,1,0,0},
-    {"RPUSH",rpushCommand,-3,"wm",0,1,1,1,0,0},
-    {"LRANGE",lrangeCommand,4,"r",0,1,1,1,0,0}
+}
+
+void RedisClient::Lrange(std::unique_ptr<RedisRequest> &&req) {
+
+}
+
+void RedisClient::Select(std::unique_ptr<RedisRequest> &&req) {
+
+}
+
+RedisClient::~RedisClient() {
+    aeDeleteFileEvent(G_server.el, this->fd, AE_READABLE | AE_WRITABLE);
+    close(this->fd);
+    free(this->wbuf);
+}
+
+RedisCommand redisCommandTable[] = {
+    {"GET",&RedisClient::Get,2,"r",0,1,1,1,0,0},
+    {"SET",&RedisClient::Set,-3,"wm",0,1,1,1,0,0},
+    {"RPUSH",&RedisClient::Rpush,-3,"wm",0,1,1,1,0,0},
+    {"SELECT",&RedisClient::Select,2,"rl",0,0,0,0,0,0},
+    {"LRANGE",&RedisClient::Lrange,4,"r",0,1,1,1,0,0}
 };
 
 ListDbServer::ListDbServer() {
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+    int numcommands = sizeof(redisCommandTable)/sizeof(RedisCommand);
     for (int i = 0; i < numcommands; i++) {
-        redisCommand *c = redisCommandTable + i;
+        RedisCommand *c = redisCommandTable + i;
+        const char *f = c->sflags.data();
+
+        while(*f != '\0') {
+            switch(*f) {
+            case 'w': c->flags |= REDIS_CMD_WRITE; break;
+            case 'r': c->flags |= REDIS_CMD_READONLY; break;
+            case 'm': c->flags |= REDIS_CMD_DENYOOM; break;
+            case 'n': c->flags |= REDIS_CMD_NETWORK_THREAD; break;
+            case 'a': c->flags |= REDIS_CMD_ADMIN; break;
+            case 'p': c->flags |= REDIS_CMD_PUBSUB; break;
+            case 's': c->flags |= REDIS_CMD_NOSCRIPT; break;
+            case 'R': c->flags |= REDIS_CMD_RANDOM; break;
+            case 'S': c->flags |= REDIS_CMD_SORT_FOR_SCRIPT; break;
+            case 'l': c->flags |= REDIS_CMD_LOADING; break;
+            case 't': c->flags |= REDIS_CMD_STALE; break;
+            case 'M': c->flags |= REDIS_CMD_SKIP_MONITOR; break;
+            case 'k': c->flags |= REDIS_CMD_ASKING; break;
+            default: throw "error";
+            }
+            f++;
+        }
         this->table_[c->name] = c;
     }
 }
 
 void ListDbServer::Handle(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {
-    auto &cmd = req->args[0].Value;
+    auto &name = req->Args[0].Value;
     // convert to upper case
-    std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+    std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+    char buf[100];
 
-    auto it = table_.find(cmd);
+    auto it = table_.find(name);
     if (it != table_.end()) {
-        it->second->proc(c, std::move(req));
+        RedisCommand *cmd = it->second;
+        if ((cmd->arity > 0 && cmd->arity != req->Args.size()) ||
+            (-cmd->arity > -req->Args.size())) {
+            int n = snprintf(buf, sizeof(buf),
+                             "-ERR wrong number of arguments for '%s' command\r\n",
+                             name.data());
+            c->Raw(buf, n);
+        }
+        if (cmd->flags & REDIS_CMD_NETWORK_THREAD) {
+            (c->*(it->second->proc))(std::move(req));
+        } else if (cmd->flags & REDIS_CMD_WRITE) {
+            // TODO, move to dedicated thread
+            (c->*(it->second->proc))(std::move(req));
+        } else {
+            // TODO, move to threadpool
+            (c->*(it->second->proc))(std::move(req));
+        }
     } else {
-        char buf[100];
-        int n = snprintf(buf, sizeof(buf), "-ERR unknow command: %s\r\n", cmd.data());
+        int n = snprintf(buf, sizeof(buf), "-ERR unknow command: %s\r\n", name.data());
         c->Raw(buf, n);
     }
 }

@@ -126,13 +126,13 @@ public:
 
 struct RedisRequest {
     public:
-        std::vector<RedisArg> args;
+        std::vector<RedisArg> Args;
         RedisRequest(int argc): argc(argc), argReading(0) {}
 
-        void Add(int size) { args.emplace_back(size); ++argReading; }
+        void Add(int size) { Args.emplace_back(size); ++argReading; }
         // return true iff the whole requet decoded
         bool Done() { return argReading == argc; }
-        bool ReadArg(ByteBuffer &buffer) { return args[argReading - 1].Read(buffer); }
+        bool ReadArg(ByteBuffer &buffer) { return Args[argReading - 1].Read(buffer); }
     private:
         const int argc;
         int argReading;

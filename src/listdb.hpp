@@ -28,6 +28,21 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
 
+#define REDIS_CMD_WRITE 1                   /* "w" flag */
+#define REDIS_CMD_READONLY 2                /* "r" flag */
+#define REDIS_CMD_DENYOOM 4                 /* "m" flag */
+// #define REDIS_CMD_NOT_USED_1 8              /* no longer used flag */
+#define REDIS_CMD_NETWORK_THREAD 8            /* "n" flag */
+#define REDIS_CMD_ADMIN 16                  /* "a" flag */
+#define REDIS_CMD_PUBSUB 32                 /* "p" flag */
+#define REDIS_CMD_NOSCRIPT  64              /* "s" flag */
+#define REDIS_CMD_RANDOM 128                /* "R" flag */
+#define REDIS_CMD_SORT_FOR_SCRIPT 256       /* "S" flag */
+#define REDIS_CMD_LOADING 512               /* "l" flag */
+#define REDIS_CMD_STALE 1024                /* "t" flag */
+#define REDIS_CMD_SKIP_MONITOR 2048         /* "M" flag */
+#define REDIS_CMD_ASKING 4096               /* "k" flag */
+
 static rocksdb::Status to_list(const std::string& value,
                                std::vector<rocksdb::Slice> *elements,
                                int start, int stop) {
@@ -95,32 +110,10 @@ public:
     }
 };
 class RedisClient;
-
-typedef void redisCommandProc(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
-void getCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
-void setCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
-void rpushCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
-void lrangeCommand(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
-
-struct redisCommand {
-    std::string name;
-    redisCommandProc *proc;
-    int arity;
-    std::string sflags; /* Flags as string representation, one char per flag. */
-    int flags;    /* The actual flags, obtained from the 'sflags' field. */
-    /* Use a function to determine keys arguments in a command line.
-     * Used for Redis Cluster redirect. */
-    /* What keys should be loaded in background when calling this command? */
-    int firstkey; /* The first argument that's a key (0 = no keys) */
-    int lastkey;  /* The last argument that's a key */
-    int keystep;  /* The step between first and last key */
-    long long microseconds, calls;
-};
-
-
+struct RedisCommand;
 class ListDbServer {
 private:
-    std::unordered_map<std::string, redisCommand*> table_;
+    std::unordered_map<std::string, RedisCommand*> table_;
 public:
     ListDbServer();
     void Handle(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
@@ -137,6 +130,8 @@ class RedisClient {
     size_t capacity;
     char *wbuf;
     std::mutex writeLock;
+
+    int db; // only read & write on network IO thread
 
     static ByteBuffer readBuffer; // request. shared, access by IO thread
 
@@ -196,6 +191,12 @@ public:
         }
         return nread;
     }
+
+    void Get(std::unique_ptr<RedisRequest> &&req);
+    void Select(std::unique_ptr<RedisRequest> &&req);
+    void Set(std::unique_ptr<RedisRequest> &&req);
+    void Rpush(std::unique_ptr<RedisRequest> &&req);
+    void Lrange(std::unique_ptr<RedisRequest> &&req);
 
     int Raw(const char* res, size_t size) {
         std::lock_guard<std::mutex> _(writeLock);
@@ -292,5 +293,21 @@ public:
     }
 };
 
+typedef void (RedisClient::*redisCommandProc)(std::unique_ptr<RedisRequest> &&req);
+
+struct RedisCommand {
+    std::string name;
+    redisCommandProc proc;
+    int arity;
+    std::string sflags; /* Flags as string representation, one char per flag. */
+    int flags;    /* The actual flags, obtained from the 'sflags' field. */
+    /* Use a function to determine keys arguments in a command line.
+     * Used for Redis Cluster redirect. */
+    /* What keys should be loaded in background when calling this command? */
+    int firstkey; /* The first argument that's a key (0 = no keys) */
+    int lastkey;  /* The last argument that's a key */
+    int keystep;  /* The step between first and last key */
+    long long microseconds, calls;
+};
 
 #endif /* _LISTDB_H_ */
