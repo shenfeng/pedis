@@ -1,9 +1,7 @@
 #include "listdb.hpp"
 
-struct ServerConf G_server; // /* server global state */
-
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
-    RedisClient *c = (RedisClient*)privdata;
+    PedisClient *c = (PedisClient*)privdata;
     try {
         if(c->ReadAndHandle() < 0) {
             delete c; // normal clode
@@ -20,21 +18,22 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     char cip[128];
-    cfd = anetTcpAccept(G_server.neterr, fd, cip, sizeof(cip), &cport);
+    char neterr[ANET_ERR_LEN];
+    cfd = anetTcpAccept(neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == AE_ERR) {
         return;
     }
 
-    RedisClient *c = new RedisClient(cfd, (ListDbServer*)privdata);
+    PedisClient *c = new PedisClient(cfd, (PedisServer*)privdata);
     anetEnableTcpNoDelay(NULL, cfd);
-    if (aeCreateFileEvent(G_server.el, cfd, AE_READABLE,
+    if (aeCreateFileEvent(el, cfd, AE_READABLE,
                           readQueryFromClient, c) == AE_ERR) {
         delete c;
     }
 }
 
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
-    RedisClient *c = (RedisClient*) privdata;
+    PedisClient *c = (PedisClient*) privdata;
     try {
         c->Write();
     } catch (IOException &e) {
@@ -44,43 +43,43 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 }
 
 // read buffer, shared across all socket
-ByteBuffer RedisClient::readBuffer(1024 * 64);
+ByteBuffer PedisClient::readBuffer(1024 * 64);
 
-void RedisClient::Get(std::unique_ptr<RedisRequest> &&req) {
-
-}
-
-void RedisClient::Set(std::unique_ptr<RedisRequest> &&req) {
+void PedisClient::Get(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req) {
 
 }
 
-void RedisClient::Rpush(std::unique_ptr<RedisRequest> &&req) {
+void PedisClient::Set(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req) {
 
 }
 
-void RedisClient::Lrange(std::unique_ptr<RedisRequest> &&req) {
+void PedisClient::Rpush(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req) {
 
 }
 
-void RedisClient::Select(std::unique_ptr<RedisRequest> &&req) {
+void PedisClient::Lrange(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req) {
 
 }
 
-RedisClient::~RedisClient() {
-    aeDeleteFileEvent(G_server.el, this->fd, AE_READABLE | AE_WRITABLE);
+void PedisClient::Select(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req) {
+
+}
+
+PedisClient::~PedisClient() {
+    aeDeleteFileEvent(el, this->fd, AE_READABLE | AE_WRITABLE);
     close(this->fd);
     free(this->wbuf);
 }
 
-RedisCommand redisCommandTable[] = {
-    {"GET",&RedisClient::Get,2,"r",0,1,1,1,0,0},
-    {"SET",&RedisClient::Set,-3,"wm",0,1,1,1,0,0},
-    {"RPUSH",&RedisClient::Rpush,-3,"wm",0,1,1,1,0,0},
-    {"SELECT",&RedisClient::Select,2,"rl",0,0,0,0,0,0},
-    {"LRANGE",&RedisClient::Lrange,4,"r",0,1,1,1,0,0}
+static RedisCommand redisCommandTable[] = {
+    {"GET",&PedisClient::Get,2,"r",0,1,1,1,0,0},
+    {"SET",&PedisClient::Set,-3,"wm",0,1,1,1,0,0},
+    {"RPUSH",&PedisClient::Rpush,-3,"wm",0,1,1,1,0,0},
+    {"SELECT",&PedisClient::Select,2,"rl",0,0,0,0,0,0},
+    {"LRANGE",&PedisClient::Lrange,4,"r",0,1,1,1,0,0}
 };
 
-ListDbServer::ListDbServer() {
+PedisServer::PedisServer() {
     int numcommands = sizeof(redisCommandTable)/sizeof(RedisCommand);
     for (int i = 0; i < numcommands; i++) {
         RedisCommand *c = redisCommandTable + i;
@@ -105,18 +104,22 @@ ListDbServer::ListDbServer() {
             }
             f++;
         }
-        this->table_[c->name] = c;
+        // convert to upper case
+        std::transform(c->name.begin(), c->name.end(), c->name.begin(), ::toupper);
+        this->_table[c->name] = c;
     }
+
+    this->el = aeCreateEventLoop(1024);
 }
 
-void ListDbServer::Handle(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {
+void PedisServer::Handle(PedisClient *c, std::unique_ptr<RedisRequest> &&req) {
     auto &name = req->Args[0].Value;
     // convert to upper case
     std::transform(name.begin(), name.end(), name.begin(), ::toupper);
     char buf[100];
 
-    auto it = table_.find(name);
-    if (it != table_.end()) {
+    auto it = _table.find(name);
+    if (it != _table.end()) {
         RedisCommand *cmd = it->second;
         if ((cmd->arity > 0 && cmd->arity != req->Args.size()) ||
             (-cmd->arity > -req->Args.size())) {
@@ -125,32 +128,18 @@ void ListDbServer::Handle(RedisClient *c, std::unique_ptr<RedisRequest> &&req) {
                              name.data());
             c->Raw(buf, n);
         }
+        auto db = this->GetDb(c->db_idx); // fetch in the network thread
         if (cmd->flags & REDIS_CMD_NETWORK_THREAD) {
-            (c->*(it->second->proc))(std::move(req));
+            (c->*(it->second->proc))(db, std::move(req));
         } else if (cmd->flags & REDIS_CMD_WRITE) {
             // TODO, move to dedicated thread
-            (c->*(it->second->proc))(std::move(req));
+            (c->*(it->second->proc))(db, std::move(req));
         } else {
             // TODO, move to threadpool
-            (c->*(it->second->proc))(std::move(req));
+            (c->*(it->second->proc))(db, std::move(req));
         }
     } else {
         int n = snprintf(buf, sizeof(buf), "-ERR unknow command: %s\r\n", name.data());
         c->Raw(buf, n);
     }
-}
-
-int main() {
-    char addr[] = "0.0.0.0";
-    G_server.el = aeCreateEventLoop(1024);
-    ListDbServer server;
-
-    int listen_fd = anetTcpServer(G_server.neterr, G_server.port, addr);
-    if (listen_fd < 0) {
-        perror("open listening socket");
-    } else {
-        aeCreateFileEvent(G_server.el, listen_fd, AE_READABLE, acceptTcpHandler , &server);
-        aeMain(G_server.el);
-    }
-    return listen_fd;
 }

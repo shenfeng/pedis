@@ -1,43 +1,50 @@
-BIN=listdb-server
+BIN=pedis_server
 
 default: $(BIN)
 
-SOURCES    := ${wildcard *.cpp}
-HEADERS    := ${wildcard *.hpp}
-OBJECTS    := ${SOURCES:.cpp=.o}
-
 CPP        = g++
+INCLUDE =-I ../deps/rocksdb/include -I ../deps/rocksdb -I network
+LIB=-lpthread ../deps/rocksdb/librocksdb.a
+
 # CPPFLAGS   = -Wall -pedantic -O2 -g -c -std=c++0x
-CPPFLAGS   = -Wall -pedantic -O3 -c -std=c++11
-INCLUDE =-I ../deps/rocksdb/include -I ../deps/rocksdb  -I ../deps/redis/src
-LIB=-lpthread
-DEPS=../deps/rocksdb/librocksdb.a ae.o anet.o zmalloc.o
-# DEPS=ae.o anet.o zmalloc.o
-
-
-
-TARGET  := $(shell uname -s | tr [A-Z] [a-z] 2>/dev/null || echo unknown)
+CPPFLAGS  = -Wall -pedantic -O3 -std=c++11
+TARGET    := $(shell uname -s | tr [A-Z] [a-z] 2>/dev/null || echo unknown)
 ifeq ($(TARGET), linux)
 	CPPFLAGS += -DROCKSDB_PLATFORM_POSIX  -DOS_LINUX
 else ifeq ($(TARGET), darwin)
 	CPPFLAGS += -DROCKSDB_PLATFORM_POSIX  -DOS_MACOSX
 endif
 
-%.o: %.cpp $(HEADERS) $(SOURCES)
-	$(CPP) $(CPPFLAGS) $< -o $@ $(INCLUDE)
+%.c.o: %.c
+	gcc $< -o $@ -c -O3 -I network
 
-ae.o: ae.c anet.c zmalloc.c
-	gcc ae.c anet.c zmalloc.c -c -O3
+%.cpp.o: %.cpp
+	$(CPP) $(CPPFLAGS) -c $< -o $@ $(INCLUDE)
 
-$(BIN): $(OBJECTS) ae.o
-#	 (cd ../deps/rocksdb && make librocksdb.a)
-	$(CPP) -g $(OBJECTS) -o $(BIN) $(LIB) $(INCLUDE) $(LIB) $(DEPS)
+# compile network code
+NET_SOURCES    := ${wildcard network/*.c}
+NET_HEADERS    := ${wildcard network/*.h}
+NET_OBJECTS    := ${NET_SOURCES:.c=.c.o}
 
-run: $(BIN)
-	LD_PRELOAD=/home/feng/workspace/gperftools-httpd-read-only/libghttpd-preload.so ./$(BIN)
+_network: $(NET_OBJECTS)  $(NET_HEADERS)
+
+# compile util code
+UTIL_SOURCES    := ${wildcard util/*.cpp}
+UTIl_HEADERS    := ${wildcard util/*.hpp}
+UTIL_OBJECTS    := ${UTIL_SOURCES:.cpp=.cpp.o}
+
+_util:  $(UTIL_OBJECTS)  $(UTIl_HEADERS)
+
+# pedis server code
+SOURCES    := ${wildcard *.cpp}
+HEADERS    := ${wildcard *.hpp}
+OBJECTS    := ${SOURCES:.cpp=.cpp.o}
+
+_pedis: $(OBJECTS) $(HEADERS)
+
+
+$(BIN): _network _util _pedis pedis_server.cc
+	$(CPP) $(CPPFLAGS) $(NET_OBJECTS) $(UTIL_OBJECTS) $(OBJECTS) -o $(BIN) $(INCLUDE) $(LIB) pedis_server.cc
 
 clean:
-	rm -rf *.o ae/*.o $(BIN)
-
-tp: threadpool.cpp
-	g++ -std=c++11 -c threadpool.cpp -DDEBUG_TP
+	rm -rvf *.o network/*.o util/*.o $(BIN)

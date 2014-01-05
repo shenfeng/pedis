@@ -18,7 +18,7 @@ namespace pedis {
         enum { kLevelTrace, kLevelDebug, kLevelInfo, kLevelWarn, kLevelError, kLevelFatal };
 
         // default log to stdout
-        Logger(): logfile_(stdout), level_(kLevelInfo), next_rotate_mill_(0) {}
+        Logger(): level_(kLevelInfo), next_rotate_mill_(0), logfile_(stdout) {}
         ~Logger() { std::lock_guard<std::mutex> _(mutex_); this->Close(); }
 
         // Open a logger, filename can be "stdout". rotate every rotateHour
@@ -100,18 +100,18 @@ namespace pedis {
       2014-01-04 19:44:32.437 E [0x7fff7c80a310] util/log.cpp(74): hello world
     */
 
-#define log_trace(fmt, args...)                                         \
-    log_write(Logger::kLevelTrace, "%s(%d): " fmt, __FILE__, __LINE__, ##args)
-#define log_debug(fmt, args...)                                         \
-    log_write(Logger::kLevelDebug, "%s(%d): " fmt, __FILE__, __LINE__, ##args)
-#define log_info(fmt, args...)                                          \
-    log_write(Logger::kLevelInfo,  "%s(%d): " fmt, __FILE__, __LINE__, ##args)
-#define log_warn(fmt, args...)                                          \
-    log_write(Logger::kLevelWarn,  "%s(%d): " fmt, __FILE__, __LINE__, ##args)
-#define log_error(fmt, args...)                                         \
-    log_write(Logger::kLevelError, "%s(%d): " fmt, __FILE__, __LINE__, ##args)
-#define log_fatal(fmt, args...)                                         \
-    log_write(Logger::kLevelFatal, "%s(%d): " fmt, __FILE__, __LINE__, ##args)
+#define log_trace(fmt, ...)                                         \
+    log_write(Logger::kLevelTrace, "%s(%d): " fmt, __FILE__, __LINE__, __VA_ARGS__)
+#define log_debug(fmt, ...)                                         \
+    log_write(Logger::kLevelDebug, "%s(%d): " fmt, __FILE__, __LINE__, __VA_ARGS__)
+#define log_info(fmt, ...)                                          \
+    log_write(Logger::kLevelInfo,  "%s(%d): " fmt, __FILE__, __LINE__, __VA_ARGS__)
+#define log_warn(fmt, ...)                                          \
+    log_write(Logger::kLevelWarn,  "%s(%d): " fmt, __FILE__, __LINE__, __VA_ARGS__)
+#define log_error(fmt, ...)                                         \
+    log_write(Logger::kLevelError, "%s(%d): " fmt, __FILE__, __LINE__, __VA_ARGS__)
+#define log_fatal(fmt, ...)                                         \
+    log_write(Logger::kLevelFatal, "%s(%d): " fmt, __FILE__, __LINE__, __VA_ARGS__)
 } // namespace pedis
 
 #endif /* _PEDIS_UTIL_LOG_H */

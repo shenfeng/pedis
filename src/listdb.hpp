@@ -81,48 +81,73 @@ static rocksdb::Status to_list(const std::string& value,
     return rocksdb::Status::OK();
 }
 
-class RedisList {
+class ListDb {
 private:
     rocksdb::DB* db;
     const rocksdb::WriteOptions woption;
     const rocksdb::ReadOptions roption;
 
 public:
-    RedisList(rocksdb::DB* db): db(db) {
+    ListDb(rocksdb::DB* db): db(db) {
         // woption.disableWAL = true;
     }
 
-    rocksdb::Status Rpush(const rocksdb::Slice& key, const rocksdb::Slice& value) {
-        return db->Merge(woption, key, value);
+    rocksdb::Status Get(const std::string& key, std::string *value) {
+        std::string k("k:");
+        k.append(key);
+
+        return db->Get(roption, rocksdb::Slice(k), value);
     }
 
-    rocksdb::Status Lrange(const rocksdb::Slice& key,
+    rocksdb::Status Set(const std::string &key, const rocksdb::Slice& value) {
+        std::string k("k:");
+        k.append(key);
+
+        return db->Put(woption, rocksdb::Slice(k), value);
+    }
+
+    rocksdb::Status Rpush(const std::string& key, const rocksdb::Slice& value) {
+        std::string k("l:");
+        k.append(key);
+
+        return db->Merge(woption, rocksdb::Slice(k), value);
+    }
+
+    rocksdb::Status Lrange(const std::string& key,
                            std::string *scratch,  // value
                            std::vector<rocksdb::Slice> *elements,
                            int start,
                            int stop) {
+        std::string k("l:");
+        k.append(key);
+
         elements->clear();
-        rocksdb::Status s = db->Get(roption, key, scratch);
+        rocksdb::Status s = db->Get(roption, rocksdb::Slice(k), scratch);
         if (s.ok()) {
             to_list(*scratch, elements, start, stop);
         }
         return s;
     }
 };
-class RedisClient;
+
+class PedisClient;
 struct RedisCommand;
-class ListDbServer {
+class PedisServer {
 private:
-    std::unordered_map<std::string, RedisCommand*> table_;
+    std::unordered_map<std::string, RedisCommand*> _table;
+    std::vector<rocksdb::DB*> dbs;
 public:
-    ListDbServer();
-    void Handle(RedisClient *c, std::unique_ptr<RedisRequest> &&req);
+    aeEventLoop *el;
+    PedisServer();
+    void Handle(PedisClient *c, std::unique_ptr<RedisRequest> &&req);
+    rocksdb::DB *GetDb(int n) { return dbs[n]; }
 };
 
-class RedisClient {
+class PedisClient {
     int fd;
     RedisDecoder decoder;
-    ListDbServer *server;
+    PedisServer *server;
+    aeEventLoop *el;
 
     // response
     size_t bufpos;
@@ -131,13 +156,9 @@ class RedisClient {
     char *wbuf;
     std::mutex writeLock;
 
-    int db; // only read & write on network IO thread
-
     static ByteBuffer readBuffer; // request. shared, access by IO thread
 
     inline int _write() { // with writeLock held required
-        extern struct ServerConf G_server;
-
         int nwritten = write(fd, wbuf + sentlen, bufpos - sentlen);
         if (nwritten <= 0) throw IOException("written size < 0");
         sentlen += nwritten;
@@ -147,10 +168,9 @@ class RedisClient {
     }
 
     inline int _tryWrite() { // from worker thread
-        extern struct ServerConf G_server;
         int nwritten = _write();
         if (bufpos > 0) { // not all bytes written to the TCP buffer, wait for notify
-            aeCreateFileEvent(G_server.el, this->fd, AE_WRITABLE, sendReplyToClient, this);
+            aeCreateFileEvent(this->el, this->fd, AE_WRITABLE, sendReplyToClient, this);
         }
         return nwritten;
     }
@@ -168,12 +188,15 @@ class RedisClient {
     }
 
 public:
-    RedisClient(int fd, ListDbServer *server): fd(fd), server(server) {
+    int db_idx; // only read & write on network IO thread
+
+    PedisClient(int fd, PedisServer *server): fd(fd), server(server) {
         bufpos = sentlen = 0;
         capacity = 64 * 1024;
         wbuf = (char*)malloc(capacity);
+        this->el = server->el;
     }
-    ~RedisClient();
+    ~PedisClient();
 
     int ReadAndHandle() {
         readBuffer.Clear(); // clear for reading
@@ -192,11 +215,11 @@ public:
         return nread;
     }
 
-    void Get(std::unique_ptr<RedisRequest> &&req);
-    void Select(std::unique_ptr<RedisRequest> &&req);
-    void Set(std::unique_ptr<RedisRequest> &&req);
-    void Rpush(std::unique_ptr<RedisRequest> &&req);
-    void Lrange(std::unique_ptr<RedisRequest> &&req);
+    void Get(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req);
+    void Select(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req);
+    void Set(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req);
+    void Rpush(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req);
+    void Lrange(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req);
 
     int Raw(const char* res, size_t size) {
         std::lock_guard<std::mutex> _(writeLock);
@@ -218,20 +241,19 @@ public:
     }
 
     int Write() { // execute in IO thread
-        extern struct ServerConf G_server;
-
         std::lock_guard<std::mutex> _(writeLock);
         int nwritten = _write();
         if (bufpos == 0) {
-            aeDeleteFileEvent(G_server.el, this->fd, AE_WRITABLE);
+            aeDeleteFileEvent(this->el, this->fd, AE_WRITABLE);
         }
         return nwritten;
     }
 };
 
-class ListDBMergeOperator: public rocksdb::MergeOperator {
+
+class PedisMergeOperator: public rocksdb::MergeOperator {
 public:
-    virtual ~ListDBMergeOperator(){}
+    virtual ~PedisMergeOperator(){}
 
     // Gives the client a way to express the read -> modify -> write semantics
     // key:         (IN) The key that's associated with this merge operation.
@@ -293,7 +315,7 @@ public:
     }
 };
 
-typedef void (RedisClient::*redisCommandProc)(std::unique_ptr<RedisRequest> &&req);
+typedef void (PedisClient::*redisCommandProc)(rocksdb::DB* db, std::unique_ptr<RedisRequest> &&req);
 
 struct RedisCommand {
     std::string name;
