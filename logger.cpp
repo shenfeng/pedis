@@ -28,7 +28,7 @@ void Logger::Logv(int level, const char *fmt, va_list ap) {
         if(!thread_id_) {
             thread_id_ = ++this->current_max_id_;
         }
-        fprintf(logfile_, "%s %c [thread-%d] %s\n", buf, levels[level], thread_id_, msg);
+        fprintf(logfile_, "%s %c [t%d] %s\n", buf, levels[level], thread_id_, msg);
         fflush(logfile_);
     }
 }

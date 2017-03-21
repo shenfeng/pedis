@@ -14,28 +14,28 @@
 
 
 class ListdbHandler : virtual public ListdbIf {
+private:
+    ListDb *mDb;
 public:
-    ListdbHandler() {
-        // Your initialization goes here
+    ListdbHandler(ListDb *db) : mDb(db) {
     }
 
     void Push(const PushArg &arg) {
-        // Your implementation goes here
-        printf("Push\n");
+        ListPushArg a(arg.db, arg.key, arg.datas);
+        mDb->Push(a);
     }
 
-    void Delete(const std::string& key, const int32_t db) {
-        // Your implementation goes here
-        printf("Delete\n");
+    void Delete(const std::string &key, const int32_t db) {
+        mDb->Delete(key, db);
     }
 
     void Range(std::vector<std::string> &_return, const RangeArg &arg) {
-        // Your implementation goes here
-        printf("Range\n");
+        ListRangeArg a(arg.db, arg.start, arg.last, arg.key);
+        mDb->LRange(a, _return);
     }
 };
 
-void parse_args(const char **argv, int argc, ListServerConf &conf) {
+void parse_args(char **argv, int argc, ListServerConf &conf) {
     namespace po = boost::program_options;
     using boost::program_options::value;
 
@@ -43,9 +43,10 @@ void parse_args(const char **argv, int argc, ListServerConf &conf) {
     std::string logfile;
     desc.add_options()
             ("help,h", "Display a help message and exit.")
-            ("loglevel", value<int>(&conf.verbosity)->default_value(2), "Can be 0(debug), 1(verbose), 2(notice), 3(warnning)")
+            ("loglevel", value<int>(&conf.verbosity)->default_value(0), "Can be 0(trace), 1(debug), 2(info), 3(warn), 4(error), 5(fatal)")
             ("logfile", value<std::string>(&logfile)->default_value("stdout"), "Log file, can be stdout")
             ("threads,t", value<size_t>(&conf.threads)->default_value(8), "Threads count")
+            ("port,p", value<int>(&conf.port)->default_value(6571), "Port to listen to")
             ("dir", value<std::string>(&conf.db_dir)->default_value("data"), "Data dir")
             ("db", value<int>(&conf.db_count)->default_value(8), "Database count");
 
@@ -60,7 +61,6 @@ void parse_args(const char **argv, int argc, ListServerConf &conf) {
     listdb::log_open(logfile, conf.verbosity, 0);
     listdb::log_info("log to file: %s, verbosity: %d", logfile.data(), conf.verbosity);
 }
-
 
 
 void start_thrift_server(ListdbHandler &h, ListServerConf &conf) {
@@ -88,7 +88,15 @@ void start_thrift_server(ListdbHandler &h, ListServerConf &conf) {
 }
 
 
-int main() {
-    std::cout << "Hello, World!" << std::endl;
+int main(int argc, char **argv) {
+    ListServerConf conf;
+    parse_args(argv, argc, conf);
+
+    ListDb db(conf);
+    if (db.Open() == 0) {
+        ListdbHandler h(&db);
+        start_thrift_server(h, conf);
+    }
+
     return 0;
 }

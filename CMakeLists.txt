@@ -3,9 +3,19 @@ project(listdb)
 
 set(CMAKE_CXX_STANDARD 14)
 
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+
+
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -DROCKSDB_PLATFORM_POSIX -DOS_MACOSX -DNDEBUG")
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -DROCKSDB_PLATFORM_POSIX -DOS_MACOSX")
+
+if (APPLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_LINUX")
+elseif (LINUX)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_MACOSX")
+endif ()
 
 include_directories(
         deps/rocksdb/include
@@ -26,7 +36,7 @@ add_executable(listdb ${SOURCE_FILES})
 #ADD_LIBRARY(/Users/feng/workspace/listdb/deps/rocksdb/librocksdb.5.3.0.dylib STATIC IMPORTED)
 
 
-set(LIBS thrift boost_program_options pthread bz2 lz4  z snappy)
+set(LIBS thrift boost_program_options pthread bz2 lz4 z snappy)
 #target_include_directories(listdb  /Users/feng/workspace/listdb/deps/rocksdb)
 target_link_libraries(listdb /Users/feng/workspace/listdb/deps/rocksdb/librocksdb.a)
 target_link_libraries(listdb ${LIBS})

@@ -14,3 +14,4 @@ fi
 
 
 (cd deps && rm -rf gen-cpp && thrift -gen cpp ../api.thrift)
+(cd tests && rm -rf gen-py && thrift -gen py ../api.thrift)

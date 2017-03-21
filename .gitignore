@@ -6,3 +6,4 @@ cmake-build-debug/
 *.o
 listdb_server
 Makefile
+tests/gen-py

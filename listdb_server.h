@@ -14,15 +14,19 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
-//#include "util/coding.h"
+#include "util/coding.h"
+#include "logger.hpp"
 #include "rocksdb/merge_operator.h"
 
 using namespace std::chrono;
 
 struct ListPushArg {
-    int db;
-    std::string key;
-    std::vector<std::string> datas;
+    const int db;
+    const std::string &key;
+    const std::vector<std::string> &datas;
+
+    ListPushArg(int db, const std::string &key, const std::vector<std::string> &datas) : db(db), key(key),
+                                                                                         datas(datas) {}
 };
 
 class Watch {
@@ -43,17 +47,18 @@ public:
 };
 
 struct ListRangeArg {
-    int db;
-    int start;
-    int limit;
-    std::string key;
+    const int db;
+    const int start;
+    const int last;
+    const std::string &key;
+
+    ListRangeArg(int db, int start, int last, const std::string &key) : db(db), start(start), last(last), key(key) {}
 };
 
 struct ListServerConf {
     int verbosity;
-    int mode;
 
-    size_t threads;                // how many thrift worker threads
+    size_t threads;                //  how many thrift worker threads
     int port;                      //  which port to listen to
 
     std::string db_dir;            // 数据库的目录
@@ -64,16 +69,46 @@ class ListMergeOperator : public rocksdb::MergeOperator {
 public:
     virtual ~ListMergeOperator() {}
 
-//    bool FullMerge(const rocksdb::Slice &key,
-//                   const rocksdb::Slice *existing_value,
-//                   const std::deque<std::string> &operand_list,
-//                   std::string *new_value,
-//                   rocksdb::Logger *logger) const {
-//
-//        return true;
-//    }
-
     bool FullMergeV2(const MergeOperationInput &merge_in, MergeOperationOutput *merge_out) const {
+        merge_out->new_value.clear();
+
+        // Compute the space needed for the final result.
+        size_t numBytes = 0;
+        for (auto &s : merge_in.operand_list) {
+            numBytes += s.size() + rocksdb::VarintLength(s.size());
+
+#ifndef NDEBUG
+            if (merge_in.existing_value) {
+                listdb::log_debug("FullMergeV2, exits %s, %s, total bytes %d", merge_in.existing_value->data(),
+                                  s.data(), numBytes);
+            } else {
+                listdb::log_debug("FullMergeV2, no exits, %s, total bytes %d", s.data(), numBytes);
+            }
+#endif
+        }
+
+        if (merge_in.existing_value) {
+            merge_out->new_value.reserve(numBytes + merge_in.existing_value->size());
+        } else {
+            merge_out->new_value.reserve(numBytes);
+        }
+
+        for (auto &s: merge_in.operand_list) {
+            // encode list item as: size + data
+            rocksdb::PutVarint32(&merge_out->new_value, (uint32_t) s.size()); // put size
+            merge_out->new_value.append(s.data_, s.size());
+        }
+
+#ifndef NDEBUG
+        if (merge_in.existing_value) {
+            listdb::log_debug("FullMergeV2, exits %s, get %s %d/%d", merge_in.existing_value->data(),
+                              merge_out->new_value.data(), numBytes, merge_out->new_value.size());
+        } else {
+            listdb::log_debug("FullMergeV2, no exits, get %s %d/%d", merge_out->new_value.data(), numBytes, merge_out->new_value.size());
+        }
+#endif
+
+
         return true;
     }
 
@@ -90,13 +125,13 @@ public:
 
 class ListDb {
 public:
-    void Push(ListPushArg &arg);
-
-    void LRange(ListRangeArg &arg, std::vector<std::string> &result);
-
-    void Delete(std::string &key, int32_t db);
-
     ListDb(ListServerConf &conf) : mConf(conf) {};
+
+    void Push(const ListPushArg &arg);
+
+    void LRange(const ListRangeArg &arg, std::vector<std::string> &result);
+
+    void Delete(const std::string &key, int32_t db);
 
     int Open();
 
