@@ -26,7 +26,7 @@ add_executable(listdb ${SOURCE_FILES})
 #ADD_LIBRARY(/Users/feng/workspace/listdb/deps/rocksdb/librocksdb.5.3.0.dylib STATIC IMPORTED)
 
 
-set(LIBS thrift boost_program_options pthread)
+set(LIBS thrift boost_program_options pthread bz2 lz4  z snappy)
 #target_include_directories(listdb  /Users/feng/workspace/listdb/deps/rocksdb)
 target_link_libraries(listdb /Users/feng/workspace/listdb/deps/rocksdb/librocksdb.a)
 target_link_libraries(listdb ${LIBS})

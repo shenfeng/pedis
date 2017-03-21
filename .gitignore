@@ -3,3 +3,6 @@ deps/gen-cpp
 release
 cmake-build-debug/
 .idea/
+*.o
+listdb_server
+Makefile
