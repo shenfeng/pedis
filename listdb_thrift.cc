@@ -24,6 +24,11 @@ public:
         printf("Push\n");
     }
 
+    void Delete(const std::string& key, const int32_t db) {
+        // Your implementation goes here
+        printf("Delete\n");
+    }
+
     void Range(std::vector<std::string> &_return, const RangeArg &arg) {
         // Your implementation goes here
         printf("Range\n");
@@ -41,7 +46,8 @@ void parse_args(const char **argv, int argc, ListServerConf &conf) {
             ("loglevel", value<int>(&conf.verbosity)->default_value(2), "Can be 0(debug), 1(verbose), 2(notice), 3(warnning)")
             ("logfile", value<std::string>(&logfile)->default_value("stdout"), "Log file, can be stdout")
             ("threads,t", value<size_t>(&conf.threads)->default_value(8), "Threads count")
-            ("port,p", value<int>(&conf.port)->default_value(8912), "Port to listen for thrift connection");
+            ("dir", value<std::string>(&conf.db_dir)->default_value("data"), "Data dir")
+            ("db", value<int>(&conf.db_count)->default_value(8), "Database count");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
