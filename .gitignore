@@ -1,4 +1,5 @@
-deps
+deps/rocksdb
+deps/gen-cpp
 release
 cmake-build-debug/
 .idea/
