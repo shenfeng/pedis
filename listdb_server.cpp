@@ -3,7 +3,6 @@
 //
 
 #include "listdb_server.h"
-#include "logger.hpp"
 
 int ListDb::Open() {
     mDbs = new rocksdb::DB *[mConf.db_count];
@@ -30,7 +29,6 @@ int ListDb::Open() {
             listdb::log_fatal("open db %s, %s", dir.data(), status.ToString().data());
             return -1;
         }
-
         listdb::log_info("open db %d, takes %dms", i, w.tic());
         mDbs[i] = db;
     }
@@ -43,7 +41,9 @@ void ListDb::Push(const ListPushArg &arg) {
         for (const auto &v : arg.datas) {
             db->Merge(rocksdb::WriteOptions(), arg.key, v);
         }
+#ifndef NDEBUG
         listdb::log_trace("push %d:%s, %d", arg.db, arg.key.data(), arg.datas.size());
+#endif
     }
 }
 
@@ -71,8 +71,10 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
 
             // 3. 返回结果
             if (start > last) {
+#ifndef NDEBUG
                 listdb::log_trace("lrange %d:%s, [%d,%d] -> [%d,%d]", arg.db, arg.key.data(), arg.start, arg.last,
                                   start, last);
+#endif
                 return;
             };
             result.reserve(last - start + 1);
@@ -89,10 +91,15 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
                 result.emplace_back(p, size); // reuse value's memory
                 p += size;
             }
+#ifndef NDEBUG
             listdb::log_trace("lrange %d:%s, [%d,%d] -> [%d, %d], get %d", arg.db, arg.key.data(), arg.start, arg.last,
                               start, last, result.size());
+#endif
+
         } else {
+#ifndef NDEBUG
             listdb::log_trace("lrange %d:%s, %s", arg.db, arg.key.data(), s.ToString().data());
+#endif
         }
     }
 }
@@ -101,6 +108,8 @@ void ListDb::Delete(const std::string &key, int32_t db_idx) {
     if (db_idx < mConf.db_count) {
         rocksdb::DB *db = this->mDbs[(int) db_idx];
         rocksdb::Status s = db->Delete(rocksdb::WriteOptions(), key);
+#ifndef NDEBUG
         listdb::log_trace("delete %d:%s %s", db_idx, key.data(), s.ToString().data());
+#endif
     }
 }

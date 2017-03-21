@@ -25,8 +25,8 @@ struct ListPushArg {
     const std::string &key;
     const std::vector<std::string> &datas;
 
-    ListPushArg(int db, const std::string &key, const std::vector<std::string> &datas) : db(db), key(key),
-                                                                                         datas(datas) {}
+    ListPushArg(int db, const std::string &key, const std::vector<std::string> &datas) :
+            db(db), key(key), datas(datas) {}
 };
 
 class Watch {
@@ -104,7 +104,8 @@ public:
             listdb::log_debug("FullMergeV2, exits %s, get %s %d/%d", merge_in.existing_value->data(),
                               merge_out->new_value.data(), numBytes, merge_out->new_value.size());
         } else {
-            listdb::log_debug("FullMergeV2, no exits, get %s %d/%d", merge_out->new_value.data(), numBytes, merge_out->new_value.size());
+            listdb::log_debug("FullMergeV2, no exits, get %s %d/%d", merge_out->new_value.data(), numBytes,
+                              merge_out->new_value.size());
         }
 #endif
 

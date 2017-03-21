@@ -15,3 +15,7 @@ task :clean do
     sh 'rm -rvf *.o network/*.o util/*.o release debug'
 end
 
+desc "Run tesst"
+task :tests do
+    sh "cd tests && python listdb_test.py"
+end

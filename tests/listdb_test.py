@@ -42,6 +42,8 @@ def run_tests():
     run_test_short(client, key)
     run_tests_long(client, key)
 
+    print "all tests pass"
+
 
 def run_test_short(client, key):
     client.Delete(key, 0)
