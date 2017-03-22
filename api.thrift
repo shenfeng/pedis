@@ -12,8 +12,29 @@ struct RangeArg {
 }
 
 
+enum KeyType {
+    ListType, StringType
+}
+
+struct CursorItem {
+    1: required string key,
+    2: required KeyType type,
+}
+
+struct ScanResp {
+    1: string cursor  // "0" is the end
+    2: list<CursorItem> keys
+}
+
+struct ScanArg {
+    1: string cursor
+    2: i32 limit,
+    3: optional i32 db
+}
+
 service Listdb {
        void Push(1: PushArg arg)
        void Delete(1: string key, 2: i32 db)
        list<string> Range(1: RangeArg arg)
+       ScanResp Scan(1: ScanArg arg) // "0" is the start
 }

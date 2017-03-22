@@ -33,6 +33,24 @@ public:
         ListRangeArg a(arg.db, arg.start, arg.last, arg.key);
         mDb->LRange(a, _return);
     }
+
+    void Scan(ScanResp &_return, const ScanArg &arg) {
+        std::vector<std::tuple<std::string, int>> keys_out;
+        ListScanArg a(arg.db, arg.limit, arg.cursor);
+        mDb->Scan(a, _return.cursor, keys_out);
+        _return.keys.reserve(keys_out.size());
+
+        for (auto &k: keys_out) {
+            CursorItem item;
+            item.key = std::get<0>(k);
+            if (std::get<1>(k) == kTypeList) {
+                item.type = KeyType::ListType;
+            } else if (std::get<1>(k) == kTypeKey) {
+                item.type = KeyType::StringType;
+            }
+            _return.keys.push_back(item);
+        }
+    }
 };
 
 void parse_args(char **argv, int argc, ListServerConf &conf) {
@@ -43,7 +61,8 @@ void parse_args(char **argv, int argc, ListServerConf &conf) {
     std::string logfile;
     desc.add_options()
             ("help,h", "Display a help message and exit.")
-            ("loglevel", value<int>(&conf.verbosity)->default_value(0), "Can be 0(trace), 1(debug), 2(info), 3(warn), 4(error), 5(fatal)")
+            ("loglevel", value<int>(&conf.verbosity)->default_value(2),
+             "Can be 0(trace), 1(debug), 2(info), 3(warn), 4(error), 5(fatal)")
             ("logfile", value<std::string>(&logfile)->default_value("stdout"), "Log file, can be stdout")
             ("threads,t", value<size_t>(&conf.threads)->default_value(8), "Threads count")
             ("port,p", value<int>(&conf.port)->default_value(6571), "Port to listen to")

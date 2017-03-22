@@ -35,11 +35,32 @@ int ListDb::Open() {
     return 0;
 }
 
+
+static void get_key(const std::string &user_key, std::string &result, int type) {
+    result.reserve(user_key.size() + 1);
+    if (type == kTypeList) {
+        result.push_back('l');
+    } else if (type == kTypeKey) {
+        result.push_back('k');
+    }
+    result.append(user_key);
+}
+
+static int key_type(const rocksdb::Slice &s) {
+    if (s.data_[0] == 'l') return kTypeList;
+    else if (s.data_[0] == 'k') return kTypeKey;
+    return -1;
+}
+
 void ListDb::Push(const ListPushArg &arg) {
+    this->clear_iterators();
+
     if (arg.db < mConf.db_count) {
         rocksdb::DB *db = this->mDbs[arg.db];
+        std::string key;
+        get_key(arg.key, key, kTypeList);
         for (const auto &v : arg.datas) {
-            db->Merge(rocksdb::WriteOptions(), arg.key, v);
+            db->Merge(rocksdb::WriteOptions(), key, v);
         }
 #ifndef NDEBUG
         listdb::log_trace("push %d:%s, %d", arg.db, arg.key.data(), arg.datas.size());
@@ -48,10 +69,12 @@ void ListDb::Push(const ListPushArg &arg) {
 }
 
 void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
+    this->clear_iterators();
     if (arg.db < mConf.db_count) {
         rocksdb::DB *db = this->mDbs[arg.db];
-        std::string val;
-        rocksdb::Status s = db->Get(rocksdb::ReadOptions(), arg.key, &val);
+        std::string val, key;
+        get_key(arg.key, key, kTypeList);
+        rocksdb::Status s = db->Get(rocksdb::ReadOptions(), key, &val);
         if (s.ok()) {
             // 1. 计算个数
             auto p = val.data(), end = val.data() + val.size();
@@ -104,12 +127,64 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
     }
 }
 
-void ListDb::Delete(const std::string &key, int32_t db_idx) {
+void ListDb::Delete(const std::string &user_key, int32_t db_idx) {
+    this->clear_iterators();
     if (db_idx < mConf.db_count) {
         rocksdb::DB *db = this->mDbs[(int) db_idx];
+        std::string key;
+        get_key(user_key, key, kTypeList);
         rocksdb::Status s = db->Delete(rocksdb::WriteOptions(), key);
 #ifndef NDEBUG
         listdb::log_trace("delete %d:%s %s", db_idx, key.data(), s.ToString().data());
 #endif
+    }
+}
+
+void
+ListDb::Scan(const ListScanArg &arg, std::string &cursor_out, std::vector<std::tuple<std::string, int>> &keys_out) {
+    this->clear_iterators();
+    if (arg.db < mConf.db_count) {
+        rocksdb::DB *db = this->mDbs[arg.db];
+        rocksdb::Iterator *it = nullptr;
+        std::map<std::string, ScanIterator> &map = this->mIterators;
+        {
+            std::lock_guard<std::mutex> _(this->mMutex);
+            auto itit = map.find(arg.cursor);
+            if (itit != map.end()) {
+                it = itit->second.it;
+                listdb::log_info("cursor %s, use old", arg.cursor.data());
+                this->mIterators.erase(itit);
+            }
+        }
+
+        if (it == nullptr) {
+            it = db->NewIterator(rocksdb::ReadOptions());
+            it->SeekToFirst();
+            listdb::log_info("new cursor for %s", arg.cursor.data());
+        }
+
+        int n = 0;
+        for (; it->Valid() && n < arg.limit; it->Next()) {
+            const rocksdb::Slice slice = it->key();
+            keys_out.push_back(std::make_pair(std::string(slice.data_ + 1, slice.size() - 1), key_type(slice)));
+            n += 1;
+        }
+
+        if (it->Valid()) { // 还有更多
+            auto now = system_clock::now();
+            std::lock_guard<std::mutex> _(this->mMutex);
+            while (1) {
+                auto c = std::to_string(std::rand() % 1000000 + 10);
+                if (map.find(c) == map.end()) {
+                    map.emplace(c, ScanIterator(it, now));
+                    listdb::log_info("save new cursor, %s, total %d", c.data(), map.size());
+                    cursor_out = c;
+                    break;
+                }
+            }
+        } else {
+            cursor_out = "0";
+            delete it;
+        }
     }
 }

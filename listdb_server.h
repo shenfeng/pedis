@@ -10,11 +10,14 @@
 #include <vector>
 #include <ratio>
 #include <chrono>
+#include <cstdlib>     /* srand, rand */
+#include <mutex>
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
+#include <utility>
 #include "logger.hpp"
 #include "rocksdb/merge_operator.h"
 
@@ -29,6 +32,39 @@ struct ListPushArg {
             db(db), key(key), datas(datas) {}
 };
 
+
+struct ListRangeArg {
+    const int db;
+    const int start;
+    const int last;
+    const std::string &key;
+
+    ListRangeArg(int db, int start, int last, const std::string &key) : db(db), start(start), last(last), key(key) {}
+};
+
+struct ListScanArg {
+    const int db;
+    const int limit;
+    const std::string &cursor;
+
+    ListScanArg(int db, int limit, const std::string &cursor) : db(db), limit(limit), cursor(cursor) {}
+};
+
+struct ListServerConf {
+    int verbosity;
+
+    size_t threads;                //  how many thrift worker threads
+    int port;                      //  which port to listen to
+
+    std::string db_dir;            // 数据库的目录
+    int db_count;                  // 多少个数据库
+};
+
+enum {
+    kTypeList, kTypeKey
+};
+
+
 class Watch {
 private:
     system_clock::time_point last;
@@ -40,29 +76,10 @@ public:
 
     double tic() {
         auto now = system_clock::now();
-        auto t = duration_cast<duration<double>>(now - last).count();
+        auto t = duration_cast<std::chrono::milliseconds>(now - last);
         last = now;
-        return t * 1000; // in ms
+        return t.count(); // in ms
     }
-};
-
-struct ListRangeArg {
-    const int db;
-    const int start;
-    const int last;
-    const std::string &key;
-
-    ListRangeArg(int db, int start, int last, const std::string &key) : db(db), start(start), last(last), key(key) {}
-};
-
-struct ListServerConf {
-    int verbosity;
-
-    size_t threads;                //  how many thrift worker threads
-    int port;                      //  which port to listen to
-
-    std::string db_dir;            // 数据库的目录
-    int db_count;                  // 多少个数据库
 };
 
 class ListMergeOperator : public rocksdb::MergeOperator {
@@ -109,7 +126,6 @@ public:
         }
 #endif
 
-
         return true;
     }
 
@@ -124,6 +140,13 @@ public:
     }
 };
 
+struct ScanIterator {
+    rocksdb::Iterator *it;
+    system_clock::time_point last;
+
+    ScanIterator(rocksdb::Iterator *it, system_clock::time_point last) : it(it), last(last) {}
+};
+
 class ListDb {
 public:
     ListDb(ListServerConf &conf) : mConf(conf) {};
@@ -134,11 +157,47 @@ public:
 
     void Delete(const std::string &key, int32_t db);
 
+    void Scan(const ListScanArg &arg, std::string &cursor_out, std::vector<std::tuple<std::string, int>> &keys_out);
+
     int Open();
 
 private:
     rocksdb::DB **mDbs;
     ListServerConf &mConf;
+
+    system_clock::time_point mMinLast;
+
+    std::mutex mMutex; // 保护mIterators
+    std::map<std::string, ScanIterator> mIterators;
+
+    void clear_iterators() {
+        auto now = system_clock::now();
+
+        std::lock_guard<std::mutex> _(this->mMutex);
+        if (mIterators.empty()) return;
+
+        auto t = duration_cast<std::chrono::milliseconds>(now - mMinLast);
+        if (t.count() < 3 * 60 * 1000) { // 小于3分钟
+            return;
+        }
+        mMinLast = this->mIterators.begin()->second.last;
+
+        for (auto it = this->mIterators.begin(); it != this->mIterators.end();) {
+            t = duration_cast<std::chrono::milliseconds>(now - it->second.last);
+            if (t.count() > 3 * 60 * 1000) { // 大于3分钟
+#ifndef NDEBUG
+                listdb::log_info("clear_iterators, %s, %dms", it->first.data(), t.count());
+#endif
+                delete it->second.it;
+                it = this->mIterators.erase(it);
+            } else {
+                if (it->second.last < mMinLast) {
+                    mMinLast = it->second.last;
+                }
+                ++it;
+            }
+        }
+    }
 };
 
 

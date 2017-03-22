@@ -4,14 +4,17 @@ import sys
 reload(sys)
 sys.setdefaultencoding('utf-8')
 import os
+import logging
 
 DIR = os.path.abspath(os.path.dirname(__file__))
 if '%s/gen-py' % DIR not in sys.path:
     sys.path.append('%s/gen-py' % DIR)
 if DIR not in sys.path:
     sys.path.append(DIR)
+FORMAT = '%(asctime)-15s  %(message)s'
+logging.basicConfig(format=FORMAT, level=logging.INFO)
 
-from api.ttypes import PushArg, RangeArg
+from api.ttypes import PushArg, RangeArg, ScanArg
 from api.Listdb import Client
 
 DIR = os.path.abspath(os.path.dirname(__file__))
@@ -39,10 +42,39 @@ def run_tests():
 
     client = get_client("localhost:6571")
     key = "my-key"
-    run_test_short(client, key)
-    run_tests_long(client, key)
 
-    print "all tests pass"
+    for i in range(1000):
+        run_test_short(client, key)
+        run_tests_long(client, key)
+        test_scan(client)
+        # import time
+        # time.sleep(1)
+        logging.info("all tests pass")
+
+
+def test_scan(client):
+    prefx = 'key-xxxxx'
+    db = 2
+    total = 1000 - 1
+    for i in range(total):
+        key = '%s-%d' % (prefx, i)
+        client.Delete(key, db)
+        client.Push(PushArg(key=key, db=db, datas=["value-%s-%d" % (prefx, i) for i in range(3)]))
+
+    for i in range(5):
+        # pass
+        resp = client.Scan(ScanArg(db=db, limit=100, cursor='0'))
+
+    keys = []
+    cursor = '-1'
+    while cursor != '0':
+        resp = client.Scan(ScanArg(db=db, limit=100, cursor=cursor))
+        cursor = resp.cursor
+        for k in resp.keys:
+            keys.append(k.key)
+
+    assert len(keys) == total
+    assert len(set(keys)) == total
 
 
 def run_test_short(client, key):
