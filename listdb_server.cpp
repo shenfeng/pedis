@@ -12,13 +12,15 @@ int ListDb::Open() {
     options.create_if_missing = true;
     options.write_buffer_size = 1024 * 1024 * 256; // 64M buffer
     options.target_file_size_base = 1024 * 1024 * 64; // 32M file size
-//    options.db_log_dir = "log";
-//    options.wal_dir = "wal";
     options.compression = rocksdb::kSnappyCompression;
     options.merge_operator.reset(merger);
-//        options.row_cache =
-//        options.filter_policy = NewBloomFilterPolicy(10);
-//        options.block_cache = NewLRUCache(1024 << 20);
+
+    if (mConf.cache_size > 0) {
+        std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(mConf.cache_size * 1024 * 104);
+        rocksdb::BlockBasedTableOptions table_options;
+        table_options.block_cache = cache;
+        options.table_factory.reset(new rocksdb::BlockBasedTableFactory(table_options));
+    }
 
     for (int i = 0; i < mConf.db_count; i++) {
         rocksdb::DB *db;
@@ -152,7 +154,9 @@ ListDb::Scan(const ListScanArg &arg, std::string &cursor_out, std::vector<std::t
             auto itit = map.find(arg.cursor);
             if (itit != map.end()) {
                 it = itit->second.it;
-                listdb::log_info("cursor %s, use old", arg.cursor.data());
+#ifndef NDEBUG
+                listdb::log_debug("cursor %s, use old", arg.cursor.data());
+#endif
                 this->mIterators.erase(itit);
             }
         }
@@ -160,7 +164,9 @@ ListDb::Scan(const ListScanArg &arg, std::string &cursor_out, std::vector<std::t
         if (it == nullptr) {
             it = db->NewIterator(rocksdb::ReadOptions());
             it->SeekToFirst();
-            listdb::log_info("new cursor for %s", arg.cursor.data());
+#ifndef NDEBUG
+            listdb::log_debug("new cursor for %s", arg.cursor.data());
+#endif
         }
 
         int n = 0;
@@ -177,7 +183,9 @@ ListDb::Scan(const ListScanArg &arg, std::string &cursor_out, std::vector<std::t
                 auto c = std::to_string(std::rand() % 1000000 + 10);
                 if (map.find(c) == map.end()) {
                     map.emplace(c, ScanIterator(it, now));
-                    listdb::log_info("save new cursor, %s, total %d", c.data(), map.size());
+#ifndef NDEBUG
+                    listdb::log_debug("save new cursor, %s, total %d", c.data(), map.size());
+#endif
                     cursor_out = c;
                     break;
                 }

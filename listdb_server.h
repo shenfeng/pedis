@@ -16,6 +16,8 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
+#include "table/block_based_table_factory.h"
+#include "rocksdb/table.h"
 #include "util/coding.h"
 #include <utility>
 #include "logger.hpp"
@@ -31,7 +33,6 @@ struct ListPushArg {
     ListPushArg(int db, const std::string &key, const std::vector<std::string> &datas) :
             db(db), key(key), datas(datas) {}
 };
-
 
 struct ListRangeArg {
     const int db;
@@ -52,12 +53,12 @@ struct ListScanArg {
 
 struct ListServerConf {
     int verbosity;
-
-    size_t threads;                //  how many thrift worker threads
     int port;                      //  which port to listen to
+    size_t threads;                //  how many thrift worker threads
 
     std::string db_dir;            // 数据库的目录
     int db_count;                  // 多少个数据库
+    size_t cache_size;                // block cache的大小，m
 };
 
 enum {
