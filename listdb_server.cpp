@@ -10,13 +10,13 @@ int ListDb::Open() {
     rocksdb::Options options;
     auto merger = new ListMergeOperator();
     options.create_if_missing = true;
-    options.write_buffer_size = 1024 * 1024 * 256; // 64M buffer
-    options.target_file_size_base = 1024 * 1024 * 64; // 32M file size
-    options.compression = rocksdb::kSnappyCompression;
+    options.write_buffer_size = 1024 * 1024 * 64; // 64M buffer
+    options.target_file_size_base = 1024 * 1024 * 64; // 64M file size
+    options.compression = rocksdb::kZlibCompression;
     options.merge_operator.reset(merger);
 
     if (mConf.cache_size > 0) {
-        std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(mConf.cache_size * 1024 * 104);
+        std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(mConf.cache_size * 1024 * 1024);
         rocksdb::BlockBasedTableOptions table_options;
         table_options.block_cache = cache;
         options.table_factory.reset(new rocksdb::BlockBasedTableFactory(table_options));

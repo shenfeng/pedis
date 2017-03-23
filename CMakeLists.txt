@@ -7,13 +7,11 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
 
 
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -DROCKSDB_PLATFORM_POSIX -DOS_MACOSX -DNDEBUG")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -DROCKSDB_PLATFORM_POSIX")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -DROCKSDB_PLATFORM_POSIX -DOS_MACOSX")
-
-if (APPLE)
+if (LINUX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_LINUX")
-elseif (LINUX)
+elseif (APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_MACOSX")
 endif ()
 
@@ -25,18 +23,11 @@ include_directories(
         /usr/local/include/thrift/
 )
 
-#SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-#SET(CMAKE_FIND_LIBRARY_SUFFIXES ".dylib")
-#SET(BUILD_SHARED_LIBRARIES OFF)
-#SET(CMAKE_EXE_LINKER_FLAGS "-static")
-
 set(SOURCE_FILES listdb_thrift.cc logger.cpp deps/gen-cpp/Listdb.cpp deps/gen-cpp/api_types.cpp listdb_server.cpp)
 add_executable(listdb ${SOURCE_FILES})
 
-#ADD_LIBRARY(/Users/feng/workspace/listdb/deps/rocksdb/librocksdb.5.3.0.dylib STATIC IMPORTED)
-
-
+get_filename_component(LIBROCKSDB deps/rocksdb/librocksdb.a REALPATH)
 set(LIBS thrift boost_program_options pthread bz2 lz4 z snappy)
-#target_include_directories(listdb  /Users/feng/workspace/listdb/deps/rocksdb)
-target_link_libraries(listdb /Users/feng/workspace/listdb/deps/rocksdb/librocksdb.a)
+
+target_link_libraries(listdb ${LIBROCKSDB})
 target_link_libraries(listdb ${LIBS})

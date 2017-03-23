@@ -1,3 +1,4 @@
+# encoding: utf8
 __author__ = 'feng'
 import sys
 
@@ -16,12 +17,6 @@ logging.basicConfig(format=FORMAT, level=logging.INFO)
 
 from api.ttypes import PushArg, RangeArg, ScanArg
 from api.Listdb import Client
-
-DIR = os.path.abspath(os.path.dirname(__file__))
-if '%s/gen-py' % DIR not in sys.path:
-    sys.path.append('%s/gen-py' % DIR)
-if DIR not in sys.path:
-    sys.path.append(DIR)
 
 
 def get_client(server):
@@ -81,16 +76,16 @@ def run_test_short(client, key):
     client.Delete(key, 0)
     resp = client.Range(RangeArg(key=key, start=0, last=100, db=0))
     assert len(resp) == 0
-    client.Push(PushArg(key=key, db=0, datas=["value %d" % i for i in range(3)]))
+    client.Push(PushArg(key=key, db=0, datas=["恒泰value %d" % i for i in range(3)]))
     resp = client.Range(RangeArg(key=key, start=0, last=10, db=0))
     assert len(resp) == 3
-    assert resp[2] == "value 2"
+    assert resp[2] == "恒泰value 2"
     resp = client.Range(RangeArg(key=key, start=0, last=-1, db=0))
     assert len(resp) == 3
-    assert resp[2] == "value 2"
+    assert resp[2] == "恒泰value 2"
     resp = client.Range(RangeArg(key=key, start=1, last=-1, db=0))
     assert len(resp) == 2
-    assert resp[1] == "value 2"
+    assert resp[1] == "恒泰value 2"
 
 
 def run_tests_long(client, key):
