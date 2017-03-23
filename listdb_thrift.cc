@@ -44,7 +44,7 @@ public:
         _return.keys.reserve(keys_out.size());
 
         for (auto &k: keys_out) {
-            CursorItem item;
+            ScanItem item;
             item.key = std::get<0>(k);
             if (std::get<1>(k) == kTypeList) {
                 item.type = KeyType::ListType;

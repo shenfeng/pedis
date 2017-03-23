@@ -9,16 +9,22 @@ int ListDb::Open() {
 
     rocksdb::Options options;
     auto merger = new ListMergeOperator();
-    options.create_if_missing = true;
-    options.write_buffer_size = 1024 * 1024 * 64; // 64M buffer
-    options.target_file_size_base = 1024 * 1024 * 64; // 64M file size
-    options.compression = rocksdb::kZlibCompression;
     options.merge_operator.reset(merger);
 
+    options.create_if_missing = true;
+    options.write_buffer_size = 1024 * 1024 * 64; // 64M buffer
+    options.target_file_size_base = 1024 * 1024 * 256; // 256M file size
+    options.compaction_readahead_size = 1024 * 1024 * 2;
+    options.compression = rocksdb::kZlibCompression;
+    options.max_open_files = -1;
+    options.env->SetBackgroundThreads(3, rocksdb::Env::Priority::HIGH);
+    options.env->SetBackgroundThreads(3, rocksdb::Env::Priority::LOW);
+
     if (mConf.cache_size > 0) {
-        std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(mConf.cache_size * 1024 * 1024);
+        std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(mConf.cache_size * 1024 * 1024, 4);
         rocksdb::BlockBasedTableOptions table_options;
         table_options.block_cache = cache;
+        table_options.block_size = 8 * 1024; // 8k
         options.table_factory.reset(new rocksdb::BlockBasedTableFactory(table_options));
     }
 
@@ -163,7 +169,10 @@ ListDb::Scan(const ListScanArg &arg, std::string &cursor_out, std::vector<std::t
         }
 
         if (it == nullptr) {
-            it = db->NewIterator(rocksdb::ReadOptions());
+            auto opt = rocksdb::ReadOptions();
+            opt.fill_cache = false;
+            opt.readahead_size = 2 * 1024 * 1024; // 2m
+            it = db->NewIterator(opt);
             it->SeekToFirst();
 #ifndef NDEBUG
             listdb::log_debug("new cursor for %s", arg.cursor.data());

@@ -9,13 +9,13 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -DROCKSDB_PLATFORM_POSIX")
 
-if (LINUX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_LINUX")
-    set(LIBS thrift thriftnb event boost_program_options pthread bz2 lz4 z snappy)
-elseif (APPLE)
+if (APPLE)
     # thriftnb 在 osx 下没搞对
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_MACOSX")
     set(LIBS thrift boost_program_options pthread bz2 lz4 z snappy)
+else ()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_LINUX")
+    set(LIBS thrift thriftnb event boost_program_options pthread bz2 lz4 z snappy)
 endif ()
 
 include_directories(

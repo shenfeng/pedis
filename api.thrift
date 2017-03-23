@@ -16,14 +16,14 @@ enum KeyType {
     ListType, StringType
 }
 
-struct CursorItem {
+struct ScanItem {
     1: required string key,
     2: required KeyType type,
 }
 
 struct ScanResp {
     1: string cursor  // "0" is the end
-    2: list<CursorItem> keys
+    2: list<ScanItem> keys
 }
 
 struct ScanArg {
