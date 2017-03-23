@@ -24,14 +24,15 @@ int ListDb::Open() {
 
     for (int i = 0; i < mConf.db_count; i++) {
         rocksdb::DB *db;
-        Watch w;
+        auto start = system_clock::now();
         auto dir = this->mConf.db_dir + "/db" + std::to_string(i);
         rocksdb::Status status = rocksdb::DB::Open(options, dir, &db);
         if (!status.ok()) {
             listdb::log_fatal("open db %s, %s", dir.data(), status.ToString().data());
             return -1;
         }
-        listdb::log_info("open db %d, takes %dms", i, w.tic());
+        auto t = duration_cast<std::chrono::milliseconds>(system_clock::now() - start);
+        listdb::log_info("open db %d, takes %dms", i, t.count());
         mDbs[i] = db;
     }
     return 0;

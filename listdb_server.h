@@ -65,24 +65,6 @@ enum {
     kTypeList, kTypeKey
 };
 
-
-class Watch {
-private:
-    system_clock::time_point last;
-
-public:
-    Watch() : last(system_clock::now()) {}
-
-    void tap() { last = system_clock::now(); }
-
-    double tic() {
-        auto now = system_clock::now();
-        auto t = duration_cast<std::chrono::milliseconds>(now - last);
-        last = now;
-        return t.count(); // in ms
-    }
-};
-
 class ListMergeOperator : public rocksdb::MergeOperator {
 public:
     virtual ~ListMergeOperator() {}
