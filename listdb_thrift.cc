@@ -5,6 +5,9 @@
 #include <concurrency/PlatformThreadFactory.h>
 #include <thrift/transport/TBufferTransports.h> // TFramedTransportFactory
 
+#ifndef OS_MACOSX
+#include <thrift/server/TNonblockingServer.h>
+#endif
 
 #include <iostream>
 #include "logger.hpp"
@@ -94,15 +97,19 @@ void start_thrift_server(ListdbHandler &h, ListServerConf &conf) {
     shared_ptr<ListdbHandler> handler(&h);
     shared_ptr<TProcessor> processor(new ListdbProcessor(handler));
     shared_ptr<TProtocolFactory> protocolFactory(new TBinaryProtocolFactory());
-    shared_ptr<TServerTransport> serverTransport(new TServerSocket(conf.port));
-    shared_ptr<TTransportFactory> transportFactory(new TFramedTransportFactory());
 
     shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(conf.threads);
     shared_ptr<PlatformThreadFactory> threadFactory = shared_ptr<PlatformThreadFactory>(new PlatformThreadFactory());
     threadManager->threadFactory(threadFactory);
     threadManager->start();
-
+#ifdef OS_MACOSX
+    shared_ptr <TServerTransport> serverTransport(new TServerSocket(conf.port));
+    shared_ptr <TTransportFactory> transportFactory(new TFramedTransportFactory());
     TThreadPoolServer s(processor, serverTransport, transportFactory, protocolFactory, threadManager);
+#else
+    TNonblockingServer s(processor, protocolFactory, conf.port, threadManager);
+#endif
+
     listdb::log_info("thrift server started, port: %d, threads: %d", conf.port, conf.threads);
     s.serve();
 }
