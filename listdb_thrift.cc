@@ -64,10 +64,9 @@ void parse_args(char **argv, int argc, ListServerConf &conf) {
     std::string logfile;
     desc.add_options()
             ("help,h", "Display a help message and exit.")
-            ("loglevel", value<int>(&conf.verbosity)->default_value(2),
-             "Can be 0(trace), 1(debug), 2(info), 3(warn), 4(error), 5(fatal)")
+            ("loglevel", value<int>(&conf.verbosity)->default_value(2), "Can be 0(trace), 1(debug), 2(info), 3(warn), 4(error), 5(fatal)")
             ("logfile", value<std::string>(&logfile)->default_value("stdout"), "Log file, can be stdout")
-            ("cache", value<size_t>(&conf.cache_size)->default_value(128), "Cache size in megabytes")
+            ("cache", value<size_t>(&conf.cache_size)->default_value(1024), "Cache size in megabytes")
             ("threads,t", value<size_t>(&conf.threads)->default_value(8), "Threads count")
             ("port,p", value<int>(&conf.port)->default_value(6571), "Port to listen to")
             ("dir", value<std::string>(&conf.db_dir)->default_value("data"), "Data dir")

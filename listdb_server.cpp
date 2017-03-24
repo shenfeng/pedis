@@ -12,7 +12,7 @@ int ListDb::Open() {
     options.merge_operator.reset(merger);
 
     options.create_if_missing = true;
-    options.write_buffer_size = 1024 * 1024 * 64; // 64M buffer
+    options.write_buffer_size = 1024 * 1024 * 128; // 64M buffer
     options.target_file_size_base = 1024 * 1024 * 256; // 256M file size
     options.compaction_readahead_size = 1024 * 1024 * 2;
     options.compression = rocksdb::kZlibCompression;

@@ -89,6 +89,7 @@ public:
 
         if (merge_in.existing_value) {
             merge_out->new_value.reserve(numBytes + merge_in.existing_value->size());
+            merge_out->new_value.append(merge_in.existing_value->data(), merge_in.existing_value->size());
         } else {
             merge_out->new_value.reserve(numBytes);
         }

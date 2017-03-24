@@ -29,5 +29,5 @@ end
 
 desc "copy import_bg_action.py to bi-02"
 task :import_bg_action do
-    sh "ssh bi-02 'mkdir -p ~/import_bg_action' && scp -r tests/gen-py tests/import_bg_action.py bi-02:~/import_bg_action"
+    sh "ssh bi-02 'mkdir -p /data/tmp/import_bg_action' && scp -r tests/gen-py tests/import_bg_action.py  tests/import.sh bi-02:/data/tmp/import_bg_action"
 end
