@@ -21,3 +21,6 @@ fi
 #  sudo yum install zlib-devel zlib bzip2 bzip2-devel lz4 lz4-devel snappy-devel snappy
 
 # sudo yum install zlib-devel zlib bzip2 bzip2-devel lz4 lz4-devel snappy-devel snappy thrift-devel thrift
+
+
+# cd /lib64/ && ln -s /usr/local/lib/libthriftnb-0.9.1.so

@@ -34,7 +34,9 @@ struct ScanArg {
 
 service Listdb {
        void Push(1: PushArg arg)
+       void Pushs(1: list<PushArg> arg)
        void Delete(1: string key, 2: i32 db)
        list<string> Range(1: RangeArg arg)
+       list<list<string>> Ranges(1: list<RangeArg> arg)
        ScanResp Scan(1: ScanArg arg) // "0" is the start
 }

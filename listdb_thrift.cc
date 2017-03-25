@@ -20,12 +20,18 @@ class ListdbHandler : virtual public ListdbIf {
 private:
     ListDb *mDb;
 public:
-    ListdbHandler(ListDb *db) : mDb(db) {
-    }
+    ListdbHandler(ListDb *db) : mDb(db) {}
 
     void Push(const PushArg &arg) {
         ListPushArg a(arg.db, arg.key, arg.datas);
         mDb->Push(a);
+    }
+
+    void Pushs(const std::vector<PushArg> & arg) {
+        for(int i = 0; i< arg.size(); i++) {
+            ListPushArg a(arg[i].db, arg[i].key, arg[i].datas);
+            mDb->Push(a);
+        }
     }
 
     void Delete(const std::string &key, const int32_t db) {
@@ -35,6 +41,13 @@ public:
     void Range(std::vector<std::string> &_return, const RangeArg &arg) {
         ListRangeArg a(arg.db, arg.start, arg.last, arg.key);
         mDb->LRange(a, _return);
+    }
+
+    void Ranges(std::vector<std::vector<std::string> > & _return, const std::vector<RangeArg> & arg) {
+        for(int i = 0; i < arg.size(); i++) {
+            ListRangeArg a(arg[i].db, arg[i].start, arg[i].last, arg[i].key);
+            mDb->LRange(a, _return[i]);
+        }
     }
 
     void Scan(ScanResp &_return, const ScanArg &arg) {
