@@ -7,3 +7,5 @@ cmake-build-debug/
 listdb_server
 Makefile
 tests/gen-py
+tests/importdb/target
+tests/importdb/gen-java

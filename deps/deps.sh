@@ -15,6 +15,9 @@ fi
 
 (cd deps && rm -rf gen-cpp && thrift -gen cpp ../api.thrift)
 (cd tests && rm -rf gen-py && thrift -gen py ../api.thrift)
+(cd tests/importdb && rm -rf gen-java && thrift -gen java ../../api.thrift)
 
 
 #  sudo yum install zlib-devel zlib bzip2 bzip2-devel lz4 lz4-devel snappy-devel snappy
+
+# sudo yum install zlib-devel zlib bzip2 bzip2-devel lz4 lz4-devel snappy-devel snappy thrift-devel thrift

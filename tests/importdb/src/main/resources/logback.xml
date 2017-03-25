@@ -1,0 +1,47 @@
+<configuration scan="false">
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%date [%thread] %level %logger{0}:%line - %msg%n</pattern>
+
+            <!--<pattern>%date [%thread] %level %logger{0} - %msg%n</pattern>-->
+
+        </encoder>
+    </appender>
+
+
+    <!--<appender name="FILE"-->
+              <!--class="ch.qos.logback.core.rolling.RollingFileAppender">-->
+        <!--<file>dfetcher.log</file>-->
+        <!--<append>true</append>-->
+        <!--<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">-->
+
+
+            <!--&lt;!&ndash; daily rollover-->
+            <!--Once any of the below condition met, it will change the file name as below and compressed it. &ndash;&gt;-->
+
+            <!--<fileNamePattern>dfetcher.%d{yyyy-MM-dd}.log.zip</fileNamePattern>-->
+
+            <!--&lt;!&ndash; keep 30 days' worth of history &ndash;&gt;-->
+            <!--<maxHistory>30</maxHistory>-->
+
+            <!--&lt;!&ndash;&lt;!&ndash; or whenever the file size reaches 10MB &ndash;&gt;&ndash;&gt;-->
+            <!--&lt;!&ndash;<timeBasedFileNamingAndTriggeringPolicy&ndash;&gt;-->
+            <!--&lt;!&ndash;class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">&ndash;&gt;-->
+            <!--&lt;!&ndash;<maxFileSize>10MB</maxFileSize>&ndash;&gt;-->
+            <!--&lt;!&ndash;</timeBasedFileNamingAndTriggeringPolicy>&ndash;&gt;-->
+        <!--</rollingPolicy>-->
+
+        <!--<encoder>-->
+            <!--<pattern>%date [%thread] %level %logger{0}:%line - %msg%n</pattern>-->
+
+            <!--&lt;!&ndash;<pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>&ndash;&gt;-->
+        <!--</encoder>-->
+    <!--</appender>-->
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+        <!--<appender-ref ref="FILE"/>-->
+    </root>
+
+</configuration>
