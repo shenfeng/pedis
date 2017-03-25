@@ -109,7 +109,8 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
 #endif
                 return;
             };
-            result.reserve(last - start + 1);
+            int r_size = last - start + 1;
+            result.reserve(r_size > count ? count: r_size);
             p = val.data();
             for (int i = 0; p != end; i++) {
                 uint32_t size = 0;

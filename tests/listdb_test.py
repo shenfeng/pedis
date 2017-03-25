@@ -32,18 +32,44 @@ def get_client(server):
     return Client(protocol)
 
 
+def run_tests_batch(client):
+    key = "key"
+    client.Delete(key, 2)
+    client.Delete(key, 3)
+
+    a1 = PushArg(key=key, db=2, datas=["a1-value-%d" % i for i in range(3)])
+    a2 = PushArg(key=key, db=3, datas=["a2-value-%d" % i for i in range(3)])
+
+    client.Pushs([a1, a2])
+
+    g1 = RangeArg(key=key, start=0, last=100, db=2)
+    g2 = RangeArg(key='not-exits-key', start=0, last=100, db=3)
+    g3 = RangeArg(key=key, start=0, last=100, db=3)
+
+    resp = client.Ranges([g1, g2, g3])
+    assert len(resp[0]) == 3
+    assert len(resp[1]) == 0
+    assert len(resp[2]) == 3
+
+    # print resp
+    assert resp[0][0] == 'a1-value-0'
+    assert resp[2][0] == 'a2-value-0'
+
+    client.Delete(key, 2)
+    client.Delete(key, 3)
+
+
 def run_tests():
     # 1 . test get set
 
     client = get_client("localhost:6571")
     key = "my-key"
 
-    for i in range(1000):
+    for i in range(2):
         run_test_short(client, key)
         run_tests_long(client, key)
+        run_tests_batch(client)
         test_scan(client)
-        # import time
-        # time.sleep(1)
         logging.info("all tests pass")
 
 

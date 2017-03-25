@@ -44,6 +44,7 @@ public:
     }
 
     void Ranges(std::vector<std::vector<std::string> > & _return, const std::vector<RangeArg> & arg) {
+        _return.resize(arg.size());
         for(int i = 0; i < arg.size(); i++) {
             ListRangeArg a(arg[i].db, arg[i].start, arg[i].last, arg[i].key);
             mDb->LRange(a, _return[i]);
@@ -82,7 +83,7 @@ void parse_args(char **argv, int argc, ListServerConf &conf) {
             ("cache", value<size_t>(&conf.cache_size)->default_value(1024), "Cache size in megabytes")
             ("threads,t", value<size_t>(&conf.threads)->default_value(8), "Threads count")
             ("port,p", value<int>(&conf.port)->default_value(6571), "Port to listen to")
-            ("dir", value<std::string>(&conf.db_dir)->default_value("data"), "Data dir")
+            ("dir", value<std::string>(&conf.db_dir)->default_value("/tmp/data"), "Data dir")
             ("db", value<int>(&conf.db_count)->default_value(8), "Database count");
 
     po::variables_map vm;
