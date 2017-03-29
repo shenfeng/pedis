@@ -12,3 +12,4 @@ Makefile
 tests/gen-py
 tests/importdb/target
 tests/importdb/gen-java
+deps/java-client/target/

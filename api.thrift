@@ -3,14 +3,14 @@ namespace java com.listdb
 struct PushArg {
        1:  string key,
        2:  list<string> datas,
-       3:  optional i32 db = 0
+       3:  i32 db = 0
 }
 
 struct RangeArg {
        1: string key,
        2: i32 start
        3: i32 last
-       4: optional i32 db = 0
+       4: i32 db = 0
 }
 
 
@@ -31,7 +31,7 @@ struct ScanResp {
 struct ScanArg {
     1: string cursor
     2: i32 limit,
-    3: optional i32 db
+    3: i32 db
 }
 
 service Listdb {

@@ -1,5 +1,6 @@
 import com.google.gson.Gson;
-import org.apache.thrift.TException;
+import com.listdb.Listdb;
+import com.listdb.PushArg;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.transport.TFramedTransport;
 import org.apache.thrift.transport.TSocket;
@@ -9,19 +10,44 @@ import org.kohsuke.args4j.Option;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Created by feng on 3/24/17.
  */
 public class ImportFromFile {
+    public class LogItem {
+        // action
+        public String t;
+
+        public String p;
+        public String p1;
+        public String p2;
+        public String p3;
+        public String p12;
+
+        // 来源
+        public String g;
+        public long ts;
+
+        // appid
+        public long a;
+    }
+
 
     private static final Logger logger = LoggerFactory.getLogger(ImportFromFile.class);
 
     @Option(name = "-h", usage = "Print help and exits")
     protected boolean help = false;
+
+    @Option(name = "-skip", usage = "Print help and exits")
+    protected int skip = 6;
 
     @Option(name = "-t", usage = "Threads")
     private int threads = 4;
@@ -32,13 +58,17 @@ public class ImportFromFile {
     @Option(name = "-b", usage = "server")
     private String bserver = "";
 
+    private static final BlockingQueue<PushArg> forBoss = new ArrayBlockingQueue<>(10240);
+    private static final BlockingQueue<PushArg> forGeek = new ArrayBlockingQueue<>(10240);
+    private AtomicBoolean finished = new AtomicBoolean(false);
+
     static class Item {
         private static final Gson gson = new Gson();
-
         public final int identity;
         public final String uid;
         public final String action;
         public final String val;
+        private final LogItem data;
 
         public Item(String line) {
             String[] parts = line.split("\t");
@@ -47,28 +77,27 @@ public class ImportFromFile {
             this.identity = Integer.parseInt(parts[0]);
             this.uid = parts[1];
             this.action = parts[2];
-            this.val = gson.fromJson(parts[3], String.class);
+            this.val = parts[3];
+
+            this.data = gson.fromJson(parts[3], LogItem.class);
         }
 
         public int getDb() {
-            if (val.startsWith("_")) return 3;
-            if (action.contains("chat")) return 1;
-            if (action.equals("list-boss") || action.equals("list-geek") || action.equals("list-notify")) return 2;
+            if (data.t.startsWith("_")) return 1;
+            if (action.contains("chat")) return 2;
+            if (action.equals("list-boss") || action.equals("list-geek") || action.equals("list-notify")) return 3;
             return 0;
         }
 
-        public void send(Listdb.Client bclient, Listdb.Client cclient) throws TException {
-            PushArg arg = new PushArg(uid, Arrays.asList(val));
-            arg.setDb(getDb());
+        public void queue() throws InterruptedException {
+            PushArg arg = new PushArg(uid, Arrays.asList(val), getDb());
             if (this.identity == 9) {
-                cclient.Push(arg);
+                forGeek.put(arg);
             } else {
-                bclient.Push(arg);
+                forBoss.put(arg);
             }
         }
     }
-
-    private ConcurrentLinkedQueue<File> queue;
 
     public Listdb.Client getClient(String ip) throws TTransportException {
         String[] parts = ip.split(":");
@@ -77,11 +106,11 @@ public class ImportFromFile {
 
         trans.open();
         TBinaryProtocol protocol = new TBinaryProtocol(new TFramedTransport(trans));
-        Listdb.Client client = new Listdb.Client(protocol);
-        return client;
+        return new Listdb.Client(protocol);
     }
 
-    public void run() throws InterruptedException {
+    public void run() throws InterruptedException, TTransportException, IOException {
+
         File[] files = new File(".").listFiles();
         if (files == null) return;
 
@@ -95,63 +124,74 @@ public class ImportFromFile {
         Collections.sort(allFiles, new Comparator<File>() {
             @Override
             public int compare(File o1, File o2) {
-                return Long.compare(o1.lastModified(), o2.lastModified());
+                return o1.getName().compareTo(o2.getName());
+//                return Long.compare(o1.lastModified(), o2.lastModified());
             }
         });
 
-        if (allFiles.size() > 5) {
-            allFiles = allFiles.subList(0, allFiles.size() - 6);
+        if (allFiles.size() > this.skip) {
+            allFiles = allFiles.subList(0, allFiles.size() - this.skip);
         } else {
             return;
         }
 
-        queue = new ConcurrentLinkedQueue<>(allFiles);
-        logger.info("finding {} files, {} threads", queue.size(), this.threads);
-        final ExecutorService pool = Executors.newFixedThreadPool(this.threads);
+        logger.info("finding {} files, {} threads", allFiles.size(), this.threads);
+        final ExecutorService pool = Executors.newFixedThreadPool(6);
 
-        for (int i = 0; i < this.threads; i++) {
+        for (int i = 0; i < 3; i++) {
+            final Listdb.Client b = getClient(this.bserver);
+            final Listdb.Client c = getClient(this.cserver);
             pool.submit(new Runnable() {
                 @Override
                 public void run() {
-                    try {
-                        loadAndAddToDb();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+                    commit2db(c, forGeek);
+                }
+            });
+            pool.submit(new Runnable() {
+                @Override
+                public void run() {
+                    commit2db(b, forBoss);
                 }
             });
         }
+
+        int total = 0;
+        for (File f : allFiles) {
+            logger.info("doing {}", f.getName());
+            BufferedReader bufferedReader = new BufferedReader(new FileReader(f));
+            String line;
+            int n = 0;
+            long start = System.currentTimeMillis();
+
+            while ((line = bufferedReader.readLine()) != null) {
+                n += 1;
+                total += 1;
+                new Item(line).queue();
+            }
+
+            f.renameTo(new File("backup/" + f.getName()));
+            logger.info("done {}, total {} lines, this file {}, {} qps",
+                    f.getName(), total, n, n * 1000.0 / (System.currentTimeMillis() - start));
+
+        }
+        finished.set(true);
+
         pool.shutdown();
         pool.awaitTermination(2, TimeUnit.DAYS);
     }
 
-    private void loadAndAddToDb() throws TException, IOException {
-        Listdb.Client b = getClient(this.bserver);
-        Listdb.Client c = getClient(this.cserver);
-        int total = 0;
-
-        while (true) {
-            int n = 0;
-            long start = System.currentTimeMillis();
-
-            File f = queue.poll();
-            if (f == null) {
-                return;
+    private void commit2db(Listdb.Client client, BlockingQueue<PushArg> queue) {
+        try {
+            while (!queue.isEmpty() || !finished.get()) {
+                int size = queue.size();
+                List<PushArg> batch = new ArrayList<>(size);
+                for (int i = 0; i < size; i++) {
+                    batch.add(queue.take());
+                }
+                client.Pushs(batch);
             }
-
-            logger.info("doing {}", f.getName());
-            BufferedReader bufferedReader = new BufferedReader(new FileReader(f));
-            String line;
-            while ((line = bufferedReader.readLine()) != null) {
-                n += 1;
-                total += 1;
-                new Item(line).send(b, c);
-            }
-
-            f.renameTo(new File("backup/" + f.getName()));
-
-            logger.info("done {}, total {} lines, this file {}, {} qps",
-                    f.getName(), total, n, n * 1000.0 / (System.currentTimeMillis() - start));
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
         }
     }
 
@@ -171,7 +211,6 @@ public class ImportFromFile {
         } catch (Exception e) {
         }
     }
-
 
     public static void main(String[] args) {
         new ImportFromFile().parseArgsAndRun(args);
