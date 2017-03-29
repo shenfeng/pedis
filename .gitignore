@@ -1,5 +1,8 @@
 deps/rocksdb
 deps/gen-cpp
+deps/java-client/gen-java/
+deps/java-client/listdb-client.iml
+deps/java-client/src/
 release
 cmake-build-debug/
 .idea/

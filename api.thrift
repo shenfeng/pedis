@@ -1,3 +1,5 @@
+namespace java com.listdb
+
 struct PushArg {
        1:  string key,
        2:  list<string> datas,

@@ -17,6 +17,16 @@ fi
 (cd tests && rm -rf gen-py && thrift -gen py ../api.thrift)
 (cd tests/importdb && rm -rf gen-java && thrift -gen java ../../api.thrift)
 
+(cd deps/java-client/ && rm -rf gen-java && thrift -gen java ../../api.thrift)
+(cd deps/java-client/ && python ~/workspace/api-kit/thrift_client/gen_clients.py \
+    --file ../../api.thrift \
+    --package com.listdb \
+    --thrift_package com.listdb \
+    --cls ListdbClient \
+    --dir src/main/java \
+    --name Listdb --timeout 3000 --retry 2)
+
+
 
 #  sudo yum install zlib-devel zlib bzip2 bzip2-devel lz4 lz4-devel snappy-devel snappy
 
