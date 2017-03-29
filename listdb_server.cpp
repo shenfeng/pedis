@@ -87,7 +87,7 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
         if (s.ok()) {
             // 1. 计算个数
             auto p = val.data(), end = val.data() + val.size();
-            uint32_t count = 0;
+            int count = 0;
             while (p < end) {
                 uint32_t size = 0;
                 p = rocksdb::GetVarint32Ptr(p, p + 5, &size); // TODO corruption?
@@ -101,8 +101,8 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
             if (start <= -count) start = 0;
             if (last <= -count) start = 0;
 
-            while (last < 0) last += (int) count;
-            while (start < 0) start += (int) count;
+            while (last < 0) last += count;
+            while (start < 0) start += count;
 
             // 3. 返回结果
             if (start > last) {

@@ -18,13 +18,16 @@ fi
 (cd tests/importdb && rm -rf gen-java && thrift -gen java ../../api.thrift)
 
 (cd deps/java-client/ && rm -rf gen-java && thrift -gen java ../../api.thrift)
-(cd deps/java-client/ && python ~/workspace/api-kit/thrift_client/gen_clients.py \
-    --file ../../api.thrift \
-    --package com.listdb \
-    --thrift_package com.listdb \
-    --cls ListdbClient \
-    --dir src/main/java \
-    --name Listdb --timeout 3000 --retry 2)
+
+if [ -f ~/workspace/api-kit/thrift_client/gen_clients.py ]; then
+    (cd deps/java-client/ && python ~/workspace/api-kit/thrift_client/gen_clients.py \
+        --file ../../api.thrift \
+        --package com.listdb \
+        --thrift_package com.listdb \
+        --cls ListdbClient \
+        --dir src/main/java \
+        --name Listdb --timeout 3000 --retry 2)
+fi
 
 
 
