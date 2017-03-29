@@ -98,6 +98,9 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
             // 2. 计算起始位置, 负数表示从后往前数 [start, last]
             int start = arg.start;
             int last = arg.last;
+            if (start <= -count) start = 0;
+            if (last <= -count) start = 0;
+
             while (last < 0) last += (int) count;
             while (start < 0) start += (int) count;
 
@@ -110,7 +113,7 @@ void ListDb::LRange(const ListRangeArg &arg, std::vector<std::string> &result) {
                 return;
             };
             int r_size = last - start + 1;
-            result.reserve(r_size > count ? count: r_size);
+            result.reserve(r_size > count ? count : r_size);
             p = val.data();
             for (int i = 0; p != end; i++) {
                 uint32_t size = 0;
