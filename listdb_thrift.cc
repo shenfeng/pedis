@@ -81,6 +81,7 @@ void parse_args(char **argv, int argc, ListServerConf &conf) {
             ("loglevel", value<int>(&conf.verbosity)->default_value(2), "Can be 0(trace), 1(debug), 2(info), 3(warn), 4(error), 5(fatal)")
             ("logfile", value<std::string>(&logfile)->default_value("stdout"), "Log file, can be stdout")
             ("cache", value<size_t>(&conf.cache_size)->default_value(1024), "Cache size in megabytes")
+            ("max_val", value<size_t>(&conf.max_val)->default_value(0), "Max size of value, default 0 unlimited")
             ("threads,t", value<size_t>(&conf.threads)->default_value(8), "Threads count")
             ("port,p", value<int>(&conf.port)->default_value(6571), "Port to listen to")
             ("dir", value<std::string>(&conf.db_dir)->default_value("/tmp/data"), "Data dir")
@@ -95,7 +96,7 @@ void parse_args(char **argv, int argc, ListServerConf &conf) {
         exit(1);
     }
     listdb::log_open(logfile, conf.verbosity, 0);
-    listdb::log_info("log to file: %s, verbosity: %d", logfile.data(), conf.verbosity);
+    listdb::log_info("log to file: %s, verbosity: %d, max_val %d bytes", logfile.data(), conf.verbosity, conf.max_val);
 }
 
 

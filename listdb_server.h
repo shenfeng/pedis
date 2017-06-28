@@ -59,6 +59,7 @@ struct ListServerConf {
     std::string db_dir;            // 数据库的目录
     int db_count;                  // 多少个数据库
     size_t cache_size;                // block cache的大小，m
+    size_t max_val;
 };
 
 enum {
@@ -66,7 +67,12 @@ enum {
 };
 
 class ListMergeOperator : public rocksdb::MergeOperator {
+private:
+    size_t max_val;
 public:
+    ListMergeOperator(size_t max_val): max_val(max_val) {
+    }
+
     virtual ~ListMergeOperator() {}
 
     bool FullMergeV2(const MergeOperationInput &merge_in, MergeOperationOutput *merge_out) const {
@@ -98,6 +104,23 @@ public:
             // encode list item as: size + data
             rocksdb::PutVarint32(&merge_out->new_value, (uint32_t) s.size()); // put size
             merge_out->new_value.append(s.data_, s.size());
+        }
+
+        if (max_val > 0 && merge_out->new_value.size() > max_val) { // 超过了大小限制， 去掉前面的
+            size_t to_ignore = merge_out->new_value.size() - max_val;
+
+            auto p = merge_out->new_value.data(), start = merge_out->new_value.data(), end = merge_out->new_value.data() + merge_out->new_value.size();
+            while (p < end) {
+                uint32_t size = 0;
+                auto t = rocksdb::GetVarint32Ptr(p, p + 5, &size);
+                t += size;
+                if (t - start > to_ignore) break;
+                p = t;
+            }
+
+            listdb::log_debug("FullMergeV2, trim %d -> %d/%d", merge_out->new_value.size(), to_ignore, merge_out->new_value.size() - (p - start));
+            if(p != start)
+                merge_out->new_value = merge_out->new_value.substr(p - start);
         }
 
 #ifndef NDEBUG
