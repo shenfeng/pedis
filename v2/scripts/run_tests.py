@@ -50,6 +50,7 @@ def run_tests():
     assert len(resps[0]) == repeat
     assert len(resps[1]) == 0
 
+
     # test max_val
     repeat, db, key2 = 1000, 0, "12102102"
     client.Delete(key, db)
@@ -61,6 +62,21 @@ def run_tests():
     resp = client.Range(rr)
     assert len(resp) < repeat
     assert resp[0].msg == msg
+
+    # test scan
+    client.Delete(key, db)
+    for i in range(1000):
+        li = LogItem(action=Action.CHAT, ts=i, msg=msg, geekId=0)
+        client.Push([PushReq(key='test-%d' % i, db=0, logs=[li])])
+
+    cursor, keys = '', []
+    while cursor != '0':
+        resp = client.Scan(ScanReq(limit=10,cursor=cursor))
+        cursor = resp.cursor
+        keys += resp.keys
+    assert len(keys) == 1000
+
+
 
     print "all tests pass"
 

@@ -260,8 +260,7 @@ public:
             opt.readahead_size = 2 * 1024 * 1024;
             it = mdbs[req.db]->NewIterator(opt);
             it->SeekToFirst();
-            listdb::log_info("scan new it, in %s, out %s, %dms", req.cursor.data(), _return.cursor.data(),
-                             ticker.ms());
+            listdb::log_info("scan new it, in %s, %dms", req.cursor.data(), ticker.ms());
         }
 
         int n = 0;

@@ -33,6 +33,9 @@ LIST_BOSS_SEARCH
 LIST_GEEK
 LIST_GEEK_SEARCH
 LIST_NOTIFY
+LIST_SEARCH
+LIST_SEARCH_CLICK
+LIST_SEARCH_USE
 OPEN_RESUME
 SEARCH_CLICK
 SEARCH_LIST
@@ -52,9 +55,10 @@ struct LogItem {
     8: optional string algo    // detail_geek 等的算法标记
     9: optional string keyword // 搜索关键字
     10: optional string filter // 搜索的筛选条件
-    11: optional string extra
     12: optional i16 page      // list-geek-search, list-boss, list-geek, list-boss-search等
     13: optional i32 brandId
+    14: optional i16 kind // list-notify (1：新人，2：看过，4：感兴趣，6 直通车（b 端）)
+    15: optional i32 city
 }
 
 
