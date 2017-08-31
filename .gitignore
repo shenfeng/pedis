@@ -1,5 +1,9 @@
 deps/rocksdb
 deps/gen-cpp
+v2/deps/
+v2/debug/
+v2/release/
+v2/scripts/gen-py/
 deps/java-client/gen-java/
 deps/java-client/listdb-client.iml
 deps/java-client/src/

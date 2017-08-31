@@ -1,0 +1,29 @@
+task :default => :gen
+
+
+desc "gen files"
+task :gen do
+    sh 'mkdir -p deps && rm -rf deps/gen-cpp && cd deps && thrift -gen cpp ../scripts/logdb.thrift'
+    sh 'cd scripts && thrift -gen py logdb.thrift'
+    # sh 'mkdir -p deps && cd deps && git clone https://github.com/facebook/rocksdb.git && cd rocksdb && make static_lib -j4'
+end
+
+
+
+desc "Build release binary"
+task :release => [:gen] do
+    sh 'mkdir -p release && cd release && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j'
+end
+
+desc "Build debug binary"
+task :debug => [:gen] do
+    sh 'mkdir -p debug && cd debug && cmake -DCMAKE_BUILD_TYPE=Debug .. && make -j'
+end
+
+
+desc "dev run"
+task :dev_run do
+    sh './scripts/dev_run.sh'
+end
+
+# sudo yum install zlib-devel zlib bzip2 bzip2-devel lz4 lz4-devel snappy-devel snappy thrift-devel    thrift rake boost boost-program-options cmake libevent-devel
